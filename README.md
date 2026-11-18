@@ -80,7 +80,14 @@ What `install.sh` sets up:
   - `run-aoe2.sh stock` starts the same way with unmodified CrossOver.
   - `AOE_HUD=1` shows the Metal HUD.
 - Game updates: the launcher reads the `.text` range of `AoE2DE_s.exe` at every start, so no rebuild is needed.
-- To uninstall, delete the folder and the launcher app.
+- Safety: the launcher starts the game **without** Part A and shows a notification when:
+  - the bottle was upgraded by a different CrossOver version than the one Part A was built for,
+  - Steam or another Wine program is running under a different CrossOver version,
+  - the game's code range can't be read,
+  - the patched start fails early (bridge address taken, sidecar not starting).
+- CrossOver updates: the patched copy stays on the version it was built from. To use Part A with a new CrossOver, run `build.sh` with the new source tarball and `install.sh` again. The patch may need small adjustments.
+- Logs: `~/Library/Application Support/aoe2-mac-softfault/logs`. `AOE2_DRYRUN=1 run-aoe2.sh soft` runs only the checks.
+- To uninstall, delete that folder and the launcher app.
 
 ## Credits and license
 
