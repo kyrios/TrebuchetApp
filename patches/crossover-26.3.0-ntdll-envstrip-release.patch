@@ -1,0 +1,73 @@
+--- a/dlls/ntdll/unix/env.c
++++ b/dlls/ntdll/unix/env.c
+@@ -1828,8 +1828,70 @@
+ /*************************************************************************
+  *		init_peb
+  */
++/* AoE2 mod launcher: the launcher passes its switches (AOE_*, AOE2_*, AOELAB_*, X87_*) through the environment so that
++ * the Unix side can read them with getenv(). In the game process itself (AoE2DE_s.exe) they are removed from the
++ * Windows environment block, so the game cannot see them with GetEnvironmentVariable. The Unix environment is not
++ * changed. Other processes (Steam, which starts the game) keep them, because the game inherits them from there. */
++static BOOL aoe_is_game_image( const UNICODE_STRING *path )
++{
++    static const WCHAR gameW[] = {'a','o','e','2','d','e','_','s','.','e','x','e'};
++    const WCHAR *name = path->Buffer, *end, *p;
++    SIZE_T i;
++
++    if (!name) return FALSE;
++    end = path->Buffer + path->Length / sizeof(WCHAR);
++    for (p = name; p < end; p++) if (*p == '\\' || *p == '/') name = p + 1;
++    if (end - name != ARRAY_SIZE(gameW)) return FALSE;
++    for (i = 0; i < ARRAY_SIZE(gameW); i++)
++    {
++        WCHAR c = name[i];
++        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
++        if (c != gameW[i]) return FALSE;
++    }
++    return TRUE;
++}
++
++static BOOL aoe_is_switch_var( const WCHAR *var )
++{
++    static const char *prefixes[] = { "AOE_", "AOE2_", "AOELAB_", "X87_" };
++    unsigned int i, j;
++
++    for (i = 0; i < ARRAY_SIZE(prefixes); i++)
++    {
++        for (j = 0; prefixes[i][j]; j++)
++        {
++            WCHAR c = var[j];
++            if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
++            if (c != (WCHAR)prefixes[i][j]) break;
++        }
++        if (!prefixes[i][j]) return TRUE;
++    }
++    return FALSE;
++}
++
++static void aoe_strip_switch_env( RTL_USER_PROCESS_PARAMETERS *params )
++{
++    WCHAR *src, *dst;
++
++    if (!params->Environment || !aoe_is_game_image( &params->ImagePathName )) return;
++    src = dst = params->Environment;
++    while (*src)
++    {
++        SIZE_T len = wcslen( src ) + 1;
++        if (!aoe_is_switch_var( src ))
++        {
++            if (dst != src) memmove( dst, src, len * sizeof(WCHAR) );
++            dst += len;
++        }
++        src += len;
++    }
++    *dst++ = 0;
++    params->EnvironmentSize = (dst - params->Environment) * sizeof(WCHAR);
++}
++
+ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
+ {
++    aoe_strip_switch_env( params );
+     peb->ImageBaseAddress           = module;
+     peb->ProcessParameters          = params;
+     peb->OSMajorVersion             = 10;

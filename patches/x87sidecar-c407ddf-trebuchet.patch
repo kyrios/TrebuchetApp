@@ -1,0 +1,1332 @@
+diff --git a/rosetta_core/CMakeLists.txt b/rosetta_core/CMakeLists.txt
+index 868e218..270c865 100644
+--- a/rosetta_core/CMakeLists.txt
++++ b/rosetta_core/CMakeLists.txt
+@@ -27,3 +27,7 @@ add_library(rosetta_core STATIC
+ )
+ 
+ target_include_directories(rosetta_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
++
++if(AOE_RELEASE)
++    target_compile_definitions(rosetta_core PRIVATE AOE_RELEASE=1)
++endif()
+diff --git a/rosetta_core/include/rosetta_core/Config.h b/rosetta_core/include/rosetta_core/Config.h
+index 7401d37..5a92864 100644
+--- a/rosetta_core/include/rosetta_core/Config.h
++++ b/rosetta_core/include/rosetta_core/Config.h
+@@ -1,9 +1,23 @@
+ #pragma once
+ 
++#include <array>
+ #include <cstdint>
+ #include <string>
+ #include <vector>
+ 
++#ifdef AOE_RELEASE
++// AOE_RELEASE: the debug/diagnostic knobs are compile-time constants at their "off" value, so every debug path
++// (logs, dumps, profiler, sampler) is dead code and removed by the compiler. Tuning switches are unchanged.
++struct AoeOffString { constexpr bool empty() const { return true; } constexpr const char* c_str() const { return ""; } };
++#define AOE_DIAG_U8(name) static constexpr uint8_t name = 0
++#define AOE_DIAG_STR(name) static constexpr AoeOffString name {}
++#define AOE_DIAG_HASHES(name) static constexpr std::array<uint64_t, 0> name {}
++#else
++#define AOE_DIAG_U8(name) uint8_t name
++#define AOE_DIAG_STR(name) std::string name
++#define AOE_DIAG_HASHES(name) std::vector<uint64_t> name
++#endif
++
+ // ── x87 peephole-fusion identifiers ─────────────────────────────────────────
+ // Bit positions in `RosettaConfig::disabled_fusions_mask`.  See
+ // `TranslatorX87Fusion.cpp` for the actual fusion implementations.
+@@ -72,7 +86,7 @@ struct RosettaConfig {
+                                       //                           The suffix re-enters the gate on
+                                       //                           the next dispatch.  Set =0 to
+                                       //                           restore all-or-nothing gating.
+-    uint8_t log_ir_split;             // X87_LOG_IR_SPLIT          one stderr line per split retry,
++    AOE_DIAG_U8(log_ir_split);             // X87_LOG_IR_SPLIT          one stderr line per split retry,
+                                       //                           per rescued run, and per remat
+                                       //                           relief.
+     uint8_t enable_ir_remat;          // X87_ENABLE_IR_REMAT       (default ON) before splitting an
+@@ -109,7 +123,7 @@ struct RosettaConfig {
+                                       //                           gap.
+     uint8_t bridge_max_total;         // X87_BRIDGE_MAX_TOTAL      [1,16], default 8: max bridge
+                                       //                           instrs per region.
+-    uint8_t log_bridge;               // X87_LOG_BRIDGE            one stderr line per bridged
++    AOE_DIAG_U8(log_bridge);               // X87_LOG_BRIDGE            one stderr line per bridged
+                                       //                           compile (hash, counts) and per
+                                       //                           fallback.
+ 
+@@ -137,7 +151,7 @@ struct RosettaConfig {
+     // Answers "was this block (re)translated near the corruption moment, or
+     // was its code static for minutes" — the translation-side vs
+     // execution-side discriminator.
+-    std::vector<uint64_t> x87_log_hash_list;  // sorted, binary-searched
++    AOE_DIAG_HASHES(x87_log_hash_list);  // sorted, binary-searched
+ 
+     // X87_STOCK_OPS — hand to stock every block CONTAINING any of the listed
+     // opcodes (comma-separated mnemonic names, e.g. "f2xm1,fscale").  Coarser
+@@ -149,7 +163,7 @@ struct RosettaConfig {
+     // X87_DIAG_DIR — directory for <dir>/x87diag.<pid>.log, where the
+     // sidecar mirrors the X87_LOG_HASH_LIST and X87_STOCK_HASH_LIST lines.
+     // For hosts that lose the process's stdout.  Empty = off.
+-    std::string diag_dir;
++    AOE_DIAG_STR(diag_dir);
+     uint8_t force_x87_ir_gate;       // measurement-only flag for tools/profile_analyze: bypass
+                                      // the IR-eligibility gate's pre-build refusal conditions
+                                      // (run_remaining<3, top_dirty, deferred_pop_count,
+@@ -201,7 +215,7 @@ struct RosettaConfig {
+     //
+     // X87_ENABLE_ROLLBACK_DEFERRED_POP=0    (default on)
+     //   Disable rollback for the deferred_pop gate branch.
+-    uint8_t x87_log_rollback;
++    AOE_DIAG_U8(x87_log_rollback);
+     uint8_t x87_enable_rollback_top_dirty;
+     uint8_t x87_enable_rollback_deferred_pop;
+ 
+@@ -217,7 +231,7 @@ struct RosettaConfig {
+     std::vector<uint64_t> x87_no_rollback_hash_list;  // sorted, binary-searched
+ 
+     // Loader-only knobs (read by rosettax87 main; aotinvoke leaves them 0)
+-    uint8_t loader_logs;            // X87_LOGS          verbose loader logging
++    AOE_DIAG_U8(loader_logs);            // X87_LOGS          verbose loader logging
+     uint8_t loader_disable_hook;    // X87_DISABLE_HOOK  passthrough mode for benchmark
+                                     //                  baselines.  Still attaches and writes
+                                     //                  g_disable_aot=1, but skips the
+@@ -236,25 +250,25 @@ struct RosettaConfig {
+                                     //                  the post-exec task_for_pid then asks
+                                     //                  for it while the tracee is frozen at
+                                     //                  its exec stop.
+-    uint8_t loader_always_none;     // X87_ALWAYS_NONE  diagnostic: sidecar replies None for
++    AOE_DIAG_U8(loader_always_none);     // X87_ALWAYS_NONE  diagnostic: sidecar replies None for
+                                     //                  every translate_insn request, so the
+                                     //                  stub falls through to stock for all
+                                     //                  ops.  Hook + IPC mechanics still run;
+                                     //                  only our JIT output is bypassed.
+                                     //                  Used to A/B "is the freeze in our
+                                     //                  emitted code or in the marshalling?"
+-    uint8_t loader_log_ops;         // X87_LOG_OPS      diagnostic: sidecar prints one line
++    AOE_DIAG_U8(loader_log_ops);         // X87_LOG_OPS      diagnostic: sidecar prints one line
+                                     //                  per processTranslateRequest call with
+                                     //                  the opcode name and insn_idx.  Use
+                                     //                  with a deterministic freeze repro to
+                                     //                  see which op is the last one before
+                                     //                  the hang.
+-    uint8_t loader_log_throughput;  // X87_LOG_THROUGHPUT  diagnostic: sidecar starts a
++    AOE_DIAG_U8(loader_log_throughput);  // X87_LOG_THROUGHPUT  diagnostic: sidecar starts a
+                                     //                     reporter thread that prints requests/sec
+                                     //                     every 2 s and an idle-transition line.
+                                     //                     Useful to tell "stuck" from "just slow"
+                                     //                     during long workloads (WoW world-load).
+-    uint8_t loader_dump_emit;       // X87_DUMP_EMIT    diagnostic: sidecar hexdumps the
++    AOE_DIAG_U8(loader_dump_emit);       // X87_DUMP_EMIT    diagnostic: sidecar hexdumps the
+                                     //                  emitted AArch64 words of every handled
+                                     //                  request (with guest pc + opcode), so a
+                                     //                  bad encoding can be found by
+@@ -272,7 +286,7 @@ struct RosettaConfig {
+     // X87_PROFILE=<path>  When non-empty, sidecar appends a binary
+     // record per first-seen IRBlock to this file (full IR stream).
+     // Drives offline fusion-candidate analysis via tools/profile_analyze.
+-    std::string profile_path;
++    AOE_DIAG_STR(profile_path);
+ };
+ 
+ inline bool fusion_is_disabled(const RosettaConfig& cfg, FusionId id) {
+diff --git a/rosetta_core/src/ConfigEnv.cpp b/rosetta_core/src/ConfigEnv.cpp
+index 4bbc9b3..1044248 100644
+--- a/rosetta_core/src/ConfigEnv.cpp
++++ b/rosetta_core/src/ConfigEnv.cpp
+@@ -141,7 +141,9 @@ RosettaConfig load_config_from_env() {
+     cfg.enable_fma_reduce = env_default_on("X87_ENABLE_FMA_REDUCE");
+     cfg.enable_ir_split = env_default_on("X87_ENABLE_IR_SPLIT");
+     cfg.enable_ir_remat = env_default_on("X87_ENABLE_IR_REMAT");
++#ifndef AOE_RELEASE
+     cfg.log_ir_split = env_truthy("X87_LOG_IR_SPLIT") ? 1 : 0;
++#endif
+ 
+     // Test-only gate pool clamps: make register-pressure splits
+     // deterministically reproducible regardless of stock's dynamic FPR
+@@ -177,7 +179,9 @@ RosettaConfig load_config_from_env() {
+     cfg.enable_bridge_v2 = env_default_on("X87_BRIDGE_V2");
+     cfg.bridge_max_gap = 2;
+     cfg.bridge_max_total = 8;
++#ifndef AOE_RELEASE
+     cfg.log_bridge = env_truthy("X87_LOG_BRIDGE") ? 1 : 0;
++#endif
+     auto parse_bridge_bound = [](const char* env_name, uint8_t& target, long lo, long hi) {
+         const char* t = std::getenv(env_name);
+         if (t == nullptr || t[0] == '\0') {
+@@ -211,14 +215,18 @@ RosettaConfig load_config_from_env() {
+         std::printf("[rosettax87] X87_STOCK_HASH_LIST: %zu unique hashes\n",
+                     cfg.x87_stock_hash_list.size());
+     }
++#ifndef AOE_RELEASE
+     if (const char* v = std::getenv("X87_LOG_HASH_LIST"); v != nullptr && v[0] != '\0') {
+         parse_hash_list(v, cfg.x87_log_hash_list);
+         std::printf("[rosettax87] X87_LOG_HASH_LIST: %zu unique hashes\n",
+                     cfg.x87_log_hash_list.size());
+     }
++#endif
++#ifndef AOE_RELEASE
+     if (const char* v = std::getenv("X87_DIAG_DIR"); v != nullptr && v[0] != '\0') {
+         cfg.diag_dir = v;
+     }
++#endif
+     if (const char* v = std::getenv("X87_STOCK_OPS"); v != nullptr && v[0] != '\0') {
+         char buf[4096];
+         std::strncpy(buf, v, sizeof(buf) - 1);
+@@ -292,7 +300,9 @@ RosettaConfig load_config_from_env() {
+     // that previously corrupted WoW geom + weapon when these branches
+     // rolled back.  Set =0 to disable an individual branch (bisect /
+     // diagnostic).  X87_LOG_ROLLBACK stays default-off.
++#ifndef AOE_RELEASE
+     cfg.x87_log_rollback = env_truthy("X87_LOG_ROLLBACK") ? 1 : 0;
++#endif
+     cfg.x87_enable_rollback_top_dirty = env_default_on("X87_ENABLE_ROLLBACK_TOP_DIRTY");
+     cfg.x87_enable_rollback_deferred_pop = env_default_on("X87_ENABLE_ROLLBACK_DEFERRED_POP");
+     if (const char* v = std::getenv("X87_ROLLBACK_HASH_LIST"); v != nullptr && v[0] != '\0') {
+@@ -308,25 +318,37 @@ RosettaConfig load_config_from_env() {
+ 
+     // Loader-only knobs (aotinvoke leaves them at 0; harmless because it
+     // ignores the loader_* fields anyway).
++#ifndef AOE_RELEASE
+     cfg.loader_logs = env_truthy("X87_LOGS") ? 1 : 0;
++#endif
+     cfg.loader_disable_hook = env_truthy("X87_DISABLE_HOOK") ? 1 : 0;
+     cfg.loader_no_decode_hook = env_truthy("X87_NO_DECODE_HOOK") ? 1 : 0;
+     cfg.loader_no_preauth = env_truthy("X87_NO_PREAUTH") ? 1 : 0;
++#ifndef AOE_RELEASE
+     cfg.loader_always_none = env_truthy("X87_ALWAYS_NONE") ? 1 : 0;
++#endif
++#ifndef AOE_RELEASE
+     cfg.loader_log_ops = env_truthy("X87_LOG_OPS") ? 1 : 0;
+     cfg.loader_log_throughput = env_truthy("X87_LOG_THROUGHPUT") ? 1 : 0;
+     cfg.loader_dump_emit = env_truthy("X87_DUMP_EMIT") ? 1 : 0;
++#endif
+     cfg.loader_no_tco_cache = env_truthy("X87_NO_TCO_CACHE") ? 1 : 0;
+     cfg.loader_no_ir_cache = env_truthy("X87_NO_IR_CACHE") ? 1 : 0;
+ 
++#ifndef AOE_RELEASE
+     if (const char* p = std::getenv("X87_PROFILE"); p != nullptr && p[0] != '\0') {
+         cfg.profile_path = p;
+     }
++#endif
+ 
+     return cfg;
+ }
+ 
+ void print_env_help(std::FILE* out) {
++#ifdef AOE_RELEASE
++    std::fprintf(out, "Release build: tuning variables only (see the upstream README).\n");
++    return;
++#endif
+     std::fprintf(
+         out,
+         "Environment variables (read once at startup; no later getenv):\n"
+diff --git a/rosetta_core/src/X87IROptimize.cpp b/rosetta_core/src/X87IROptimize.cpp
+index 0279007..690fa8e 100644
+--- a/rosetta_core/src/X87IROptimize.cpp
++++ b/rosetta_core/src/X87IROptimize.cpp
+@@ -49,6 +49,9 @@ FmaReduceStats fma_reduce_stats() {
+ }
+ 
+ void fma_reduce_print_stats() {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     if (std::getenv("X87_LOG_FMA_REDUCE") == nullptr) {
+         return;
+     }
+@@ -618,7 +621,11 @@ static void pass_fma_reduce(Context& ctx) {
+             // chain's address layout on stride-fail so the actual workload
+             // shape (e.g. WoW's stride-16 matrix-vector) is visible.
+             if (reject_reason == FmaRejectReason::Stride && chain_len >= 2) {
++#ifdef AOE_RELEASE
++                static const char* verbose = nullptr;
++#else
+                 static const char* verbose = std::getenv("X87_LOG_FMA_REDUCE_VERBOSE");
++#endif
+                 if (verbose != nullptr && verbose[0] == '1') {
+                     std::printf("[fma_reduce] stride-fail chain_len=%d:", chain_len);
+                     for (int k = 0; k < chain_len; k++) {
+diff --git a/rosetta_loader/CMakeLists.txt b/rosetta_loader/CMakeLists.txt
+index 74232f8..56fc593 100644
+--- a/rosetta_loader/CMakeLists.txt
++++ b/rosetta_loader/CMakeLists.txt
+@@ -34,6 +34,8 @@ add_executable(x87sidecar
+     src/offset_finder.cpp
+     src/sidecar.cpp
+     src/stub_asm.cpp
++    src/reclaim_cap.cpp
++    src/subst_count.cpp
+     ${MACH_EXC_SERVER}
+ )
+ 
+@@ -71,3 +73,10 @@ add_custom_command(TARGET x87sidecar POST_BUILD
+     COMMENT "Signing x87sidecar (flat) + x87sidecar_entitled (dev entitlements)"
+     VERBATIM
+ )
++
++if(AOE_RELEASE)
++    target_compile_definitions(x87sidecar PRIVATE AOE_RELEASE=1)
++endif()
++if(AOE_RELEASE)
++    target_link_options(x87sidecar PRIVATE "-Wl,-dead_strip")
++endif()
+diff --git a/rosetta_loader/src/main.cpp b/rosetta_loader/src/main.cpp
+index c526c02..8f9e79c 100644
+--- a/rosetta_loader/src/main.cpp
++++ b/rosetta_loader/src/main.cpp
+@@ -45,6 +45,8 @@
+ #include "rosetta_core/TranscendentalHelper.h"
+ #include "rosetta_core/TranslationResult.h"
+ #include "sidecar.hpp"
++#include "reclaim_cap.hpp"
++#include "subst_count.hpp"
+ #include "stub_asm.hpp"
+ #include "types.h"
+ 
+@@ -1094,6 +1096,7 @@ static void print_loader_usage(const char* prog) {
+         "                 nothing. Exit status 0 when fully supported.\n"
+         "  --help         print this message and exit\n"
+         "\n"
++#ifndef AOE_RELEASE
+         "Sampling profiler (see also the X87_SAMPLE* variables below, which win\n"
+         "over these flags so an app bundle can enable it without touching argv):\n"
+         "  --sample=<file>       write a guest-pc sample profile here; enables it\n"
+@@ -1111,6 +1114,7 @@ static void print_loader_usage(const char* prog) {
+         "one record per report interval holding that interval's samples alone;\n"
+         "set X87_SAMPLE_WINDOWS=0 to write only the cumulative profile.\n"
+         "\n"
++#endif
+         "All other configuration is via environment variables:\n"
+         "\n",
+         prog, prog);
+@@ -2148,6 +2152,7 @@ int main(int argc, char* argv[]) try {
+             // bytes, all in the pad. Nothing it touches lives outside the
+             // runtime's own image, which is what makes it survive wine's forks.
+             const uint64_t decodeHandlerAddr = (constsEnd + 0x3) & ~static_cast<uint64_t>(0x3);
++            (void)subst_count::allocate(dbg.taskPort());   // applied-counters for the substitutions (no-op without one)
+             stub_asm::StubBlobs dblobs;
+             if (!dbg.readMemory(decodeOpcodeAddr, origDecodePrologue,
+                                 sizeof(origDecodePrologue))) {
+@@ -2190,6 +2195,18 @@ int main(int argc, char* argv[]) try {
+             }
+         }
+ 
++        // F54a: bounded reclaim in Rosetta's runtime (AOE_RECLAIM_BUDGET_US). Off without the variable; fails closed
++        // (stock reclaim) on any runtime build it cannot verify. Never fails the attach.
++        {
++            reclaim_cap::Access acc;
++            acc.read = [&](uint64_t addr, void* dst, size_t len) { return dbg.readMemory(addr, dst, len); };
++            acc.write = [&](uint64_t addr, const void* src, size_t len) { return dbg.writeMemory(addr, src, len); };
++            acc.protect = [&](uint64_t addr, vm_prot_t prot, size_t len) {
++                return dbg.adjustMemoryProtection(addr, prot, len);
++            };
++            (void)reclaim_cap::install(acc, runtimeBase);
++        }
++
+         // Record the patched code ranges so the tracee can invalidate its own
+         // i-cache (cooperative mode). The entry (hot in the i-cache post-init)
+         // is the one that MUST be flushed; the handler lives in never-executed
+@@ -2233,6 +2250,7 @@ int main(int argc, char* argv[]) try {
+         // Env wins over the flags: an app bundle can set variables but not argv.
+         sidecar::samplerConfigFromEnv(samplerCfg);
+         sidecar::startSampler(parentTaskPort, runtimeBase, samplerCfg);
++        subst_count::start(parentTaskPort);
+         installSamplerExitSignals(samplerCfg);
+         VERBOSE_LOG("M2: receive thread running; entering kqueue wait\n");
+ 
+diff --git a/rosetta_loader/src/reclaim_cap.cpp b/rosetta_loader/src/reclaim_cap.cpp
+new file mode 100644
+index 0000000..c66ab04
+--- /dev/null
++++ b/rosetta_loader/src/reclaim_cap.cpp
+@@ -0,0 +1,409 @@
++// reclaim_cap: bounded reclaim of dead translation fragments in Rosetta's runtime (F54a, "Stutter fix").
++// AOE_RECLAIM_BUDGET_US=<µs> (and/or AOE_RECLAIM_CAP=<K>) makes every reclaim pass stop after the budget; the next pass continues.
++// AOE_RECLAIM_LOG=<file>: one status line ([reclaimcap] installed / not installed: <why>). Off unless a variable is set.
++// Fail-closed: the sites are located by structural signatures in the runtime file (reclaim_locate.hpp), the file must be the
++// loaded build (LC_UUID), the live code must equal the file, and the three branch words are written all-or-nothing.
++// Extracted unchanged (same stubs, same addresses, same log lines) from the sidecar build 827ba3e7.
++#include "reclaim_cap.hpp"
++#include "reclaim_locate.hpp"
++
++#include <mach-o/loader.h>
++#include <mach/mach_vm.h>
++
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <map>
++#include <string>
++#include <vector>
++
++namespace reclaim_cap {
++namespace {
++
++// ── /usr/libexec/rosetta/runtime, macOS 27.2 (26B123) ───────────────────────
++// sha256 5d0e8f9a10093a8af1fbae31b59917be2ad1b248c4a71bf570982ba5966c41c4
++constexpr uint64_t kOffTextPad = 0x2c400;     // zero padding at the end of __TEXT (r-x)
++constexpr uint64_t kOffState = 0x3d000;       // unused tail of __DATA (rw-)
++
++struct Fingerprint {
++    uint64_t off;
++    uint32_t word;
++};
++// Build fingerprint of the macOS 27.2 runtime (the words the original patch set was verified against). All match ->
++// fast path: the located sites must equal the fixed offsets below. None of these words is written by this file.
++constexpr Fingerprint kFingerprint[] = {
++    {0x1924, 0xd2800950},   // mov x16, #0x4a
++    {0x1928, 0xd4001001},   // svc #0x80
++    {0x192c, 0x9a9f37e1},   // cset x1, hs
++    {0x1930, 0xd65f03c0},   // ret
++    {0x9be0, 0x390683e8},   // strb w8, [sp, #0x1a0]   node.first_page_was_writable (+0xf8)
++    {0x9bec, 0x390687e8},   // strb w8, [sp, #0x1a1]   node.last_page_was_writable  (+0xf9)
++    {0x9c00, 0x52802302},   // mov w2, #0x118          node size
++    {0x9c4c, 0xaa1303e0},   // mov x0, x19
++    {0x9c50, 0xaa1503e1},   // mov x1, x21
++    {0x9c54, 0x94004290},   // bl unlock
++    {0x9c58, 0xaa1603e0},   // mov x0, x22
++    {0x13ae8, 0xf940242a},  // ldr x10, [x1, #0x48]    node.x86_begin
++    {0x13b18, 0xb9409c29},  // ldr w9, [x1, #0x9c]     node.arm_size (x86_size is the word before)
++    {0xb4cc, 0x9274cf60},   // and x0, x27, #~0xfff
++    {0xb4d0, 0x52820001},   // mov w1, #0x1000
++    {0xb4d4, 0x528000e2},   // mov w2, #7
++    {0xb4d8, 0x97ffd913},   // bl mprotect
++    {0x1a694, 0xd100c3ff},  // unlock: sub sp, sp, #0x30
++};
++
++// ── tiny ARM64 assembler ────────────────────────────────────────────────────
++enum : uint32_t { EQ = 0, NE = 1, HS = 2, LO = 3, HI = 8, LS = 9 };
++constexpr uint32_t XZR = 31;
++
++struct Asm {
++    uint64_t base;
++    std::vector<uint32_t> w;
++    std::map<std::string, size_t> labels;
++    struct Fix {
++        size_t pos;
++        std::string label;
++        int kind;  // 0 b, 1 b.cond, 2 cbz/cbnz
++    };
++    std::vector<Fix> fixes;
++    bool ok = true;
++
++    explicit Asm(uint64_t b) : base(b) {}
++    uint64_t here() const { return base + w.size() * 4; }
++    void ins(uint32_t v) { w.push_back(v); }
++    void label(const char* n) { labels[n] = w.size(); }
++    void movAbs(uint32_t rd, uint64_t v) {
++        ins(0xD2800000U | ((v & 0xffff) << 5) | rd);
++        ins(0xF2A00000U | (((v >> 16) & 0xffff) << 5) | rd);
++        ins(0xF2C00000U | (((v >> 32) & 0xffff) << 5) | rd);
++        if (v >> 48) ok = false;
++    }
++    void rel26(uint32_t op, uint64_t target) {
++        const int64_t d = static_cast<int64_t>(target) - static_cast<int64_t>(here());
++        if (d < -(1LL << 27) || d >= (1LL << 27) || (d & 3)) ok = false;
++        ins(op | (static_cast<uint32_t>(d >> 2) & 0x03ffffffU));
++    }
++    void blTo(uint64_t target) { rel26(0x94000000U, target); }
++    void bTo(uint64_t target) { rel26(0x14000000U, target); }
++    void b(const char* l) { fixes.push_back({w.size(), l, 0}); ins(0x14000000U); }
++    void bcond(uint32_t c, const char* l) { fixes.push_back({w.size(), l, 1}); ins(0x54000000U | c); }
++    void cbzW(uint32_t rt, const char* l) { fixes.push_back({w.size(), l, 2}); ins(0x34000000U | rt); }
++    void cbnzW(uint32_t rt, const char* l) { fixes.push_back({w.size(), l, 2}); ins(0x35000000U | rt); }
++    void ldrW(uint32_t rt, uint32_t rn, uint32_t off) { ins(0xB9400000U | ((off / 4) << 10) | (rn << 5) | rt); }
++    void strW(uint32_t rt, uint32_t rn, uint32_t off) { ins(0xB9000000U | ((off / 4) << 10) | (rn << 5) | rt); }
++    void ldrX(uint32_t rt, uint32_t rn, uint32_t off) { ins(0xF9400000U | ((off / 8) << 10) | (rn << 5) | rt); }
++    void strX(uint32_t rt, uint32_t rn, uint32_t off) { ins(0xF9000000U | ((off / 8) << 10) | (rn << 5) | rt); }
++    void ldrB(uint32_t rt, uint32_t rn, uint32_t off) { ins(0x39400000U | (off << 10) | (rn << 5) | rt); }
++    void ldrBPost1(uint32_t rt, uint32_t rn) { ins(0x38401400U | (rn << 5) | rt); }
++    void addX(uint32_t rd, uint32_t rn, uint32_t rm) { ins(0x8B000000U | (rm << 16) | (rn << 5) | rd); }
++    void subX(uint32_t rd, uint32_t rn, uint32_t rm) { ins(0xCB000000U | (rm << 16) | (rn << 5) | rd); }
++    void cmpX(uint32_t rn, uint32_t rm) { ins(0xEB00001FU | (rm << 16) | (rn << 5)); }
++    void cmpW(uint32_t rn, uint32_t rm) { ins(0x6B00001FU | (rm << 16) | (rn << 5)); }
++    void addImm(uint32_t rd, uint32_t rn, uint32_t imm12) { ins(0x91000000U | (imm12 << 10) | (rn << 5) | rd); }
++    void addImm4K(uint32_t rd, uint32_t rn) { ins(0x91400400U | (rn << 5) | rd); }  // + 0x1000
++    void cselX(uint32_t rd, uint32_t rn, uint32_t rm, uint32_t c) { ins(0x9A800000U | (rm << 16) | (c << 12) | (rn << 5) | rd); }
++    void cselW(uint32_t rd, uint32_t rn, uint32_t rm, uint32_t c) { ins(0x1A800000U | (rm << 16) | (c << 12) | (rn << 5) | rd); }
++    void movX(uint32_t rd, uint32_t rm) { ins(0xAA0003E0U | (rm << 16) | rd); }
++    void movzW(uint32_t rd, uint32_t imm16) { ins(0x52800000U | (imm16 << 5) | rd); }
++    void movAbs64(uint32_t rd, uint64_t v) {
++        ins(0xD2800000U | ((v & 0xffff) << 5) | rd);
++        ins(0xF2A00000U | (((v >> 16) & 0xffff) << 5) | rd);
++        ins(0xF2C00000U | (((v >> 32) & 0xffff) << 5) | rd);
++        ins(0xF2E00000U | (((v >> 48) & 0xffff) << 5) | rd);
++    }
++    void eorX(uint32_t rd, uint32_t rn, uint32_t rm) { ins(0xCA000000U | (rm << 16) | (rn << 5) | rd); }
++    void mulX(uint32_t rd, uint32_t rn, uint32_t rm) { ins(0x9B007C00U | (rm << 16) | (rn << 5) | rd); }
++    void orrWLsl(uint32_t rd, uint32_t rn, uint32_t rm, uint32_t sh) { ins(0x2A000000U | (rm << 16) | (sh << 10) | (rn << 5) | rd); }
++    void ubfizX(uint32_t rd, uint32_t rn, uint32_t lsb, uint32_t width) {
++        ins(0xD3400000U | (((64 - lsb) & 63) << 16) | ((width - 1) << 10) | (rn << 5) | rd);
++    }
++    void inc64(uint32_t base_reg, uint32_t off) {  // uses x0
++        ldrX(0, base_reg, off);
++        addImm(0, 0, 1);
++        strX(0, base_reg, off);
++    }
++    bool finish() {
++        for (const auto& f : fixes) {
++            auto it = labels.find(f.label);
++            if (it == labels.end()) return false;
++            const int64_t d = static_cast<int64_t>(it->second) - static_cast<int64_t>(f.pos);
++            if (f.kind == 0) {
++                w[f.pos] |= static_cast<uint32_t>(d) & 0x03ffffffU;
++            } else {
++                if (d < -(1 << 18) || d >= (1 << 18)) return false;
++                w[f.pos] |= (static_cast<uint32_t>(d) & 0x7ffffU) << 5;
++            }
++        }
++        return ok;
++    }
++};
++
++bool parseU64(const char* s, uint64_t& out) {
++    if (s == nullptr || *s == '\0') return false;
++    char* end = nullptr;
++    out = std::strtoull(s, &end, 0);
++    return end != nullptr && *end == '\0';
++}
++
++uint32_t blWord(uint64_t from, uint64_t to) {
++    return 0x94000000U | (static_cast<uint32_t>((static_cast<int64_t>(to) - static_cast<int64_t>(from)) >> 2) & 0x03ffffffU);
++}
++
++constexpr uint32_t kStRcCount = 0x240;          // u64 fragments freed in the current pass
++constexpr uint32_t kStRcCaps = 0x248;           // u64 passes that stopped at the cap (diagnostic)
++constexpr uint32_t kStRcRetries = 0x250;        // u64 extra passes from the allocator wrapper (diagnostic)
++constexpr uint32_t kStRcGrows = 0x258;          // u64 heap grows through the wrapper (diagnostic)
++constexpr uint32_t kStRcT0 = 0x260;             // u64 CNTVCT at the start of the current pass (time budget, F54a-2)
++constexpr uint32_t kStRcBudgetHits = 0x268;     // u64 passes that stopped at the time budget (diagnostic)
++struct RcState { bool on = false; uint64_t rt = 0, st = 0, K = 0, budgetUs = 0; };
++RcState rc;
++
++// ── AOE_RECLAIM_CAP=<K> (F54a, opt-in): bounded freeing of dead JIT fragments.
++// Stock reclaim (0x8a4c, run inside a translation with the global translation lock held) frees EVERY dead fragment
++// whose epoch is below the minimum in one pass. With this switch a pass frees at most K of them (same list order, same
++// epoch rule, nothing else changes) and stops through the runtime's own "keep the rest" exit (0x8bc8). The rest stays
++// on the free list for the next pass. To keep memory bounded as in stock, the heap-grow call in the allocator (0x42c0)
++// is wrapped: if the retry after a pass still finds no room, the heap lock is dropped, another pass runs and the
++// allocation is retried; the heap only grows when a pass frees nothing (the same state in which stock grows).
++// Exactness: no fragment is freed earlier than stock would free it (only the timing of freeing moves later); no guest
++// instruction, register or memory changes. Exact-bytes gated; off unless the variable is set.
++constexpr uint64_t kOffLwPad2 = kOffTextPad + 0x1c00;   // stub area in the text padding (same address as build 827ba3e7)
++bool installImpl(const Access& acc, uint64_t rt) {
++    const char* kv = std::getenv("AOE_RECLAIM_CAP");
++    const char* bv = std::getenv("AOE_RECLAIM_BUDGET_US");   // F54a-2: time budget per pass (µs), checked every 64 fragments
++    uint64_t K = 0, budgetUs = 0;
++    if (kv && (!parseU64(kv, K) || K > 4095)) K = 0;
++    if (bv && (!parseU64(bv, budgetUs) || budgetUs > 100000)) budgetUs = 0;
++    if (K == 0 && budgetUs == 0) return false;
++    const uint64_t budgetTicks = budgetUs * 24;              // CNTVCT 24 MHz
++    FILE* lg = stdout;
++    if (const char* rp = std::getenv("AOE_RECLAIM_LOG")) if (*rp) if (FILE* f = fopen(rp, "a")) lg = f;   // install proof for the launcher
++    auto refuse = [&](const char* why) { fprintf(lg, "[reclaimcap] not installed: %s\n", why); fflush(lg); return false; };
++    // Sites: exact fingerprint -> the fixed offsets (fast path), and the pattern locator must agree; otherwise the locator
++    // alone (reclaim_locate.hpp: structural signatures + cross-checks; any doubt -> refuse = stock behaviour).
++    bool fp = true;
++    for (const auto& f : kFingerprint) { uint32_t live = 0; if (!acc.read(rt + f.off, &live, 4) || live != f.word) { fp = false; break; } }
++    reclaimloc::Sites L; std::string why;
++    {
++        // Locate on the PRISTINE runtime file (another tool may already have patched the live image), after
++        // proving the file is the loaded build (same LC_UUID); then require the live code in every range the locator
++        // relies on to equal the file, except branches into the sidecar's own stub padding.
++        auto uuidOf = [](const uint8_t* p, size_t n, uint8_t out[16]) {
++            if (n < sizeof(mach_header_64)) return false;
++            mach_header_64 h; memcpy(&h, p, sizeof h); uint64_t off = sizeof h;
++            for (uint32_t i = 0; i < h.ncmds && off + 8 <= n; i++) {
++                load_command lc; memcpy(&lc, p + off, sizeof lc);
++                if (lc.cmd == LC_UUID && off + sizeof(uuid_command) <= n) { uuid_command u; memcpy(&u, p + off, sizeof u); memcpy(out, u.uuid, 16); return true; }
++                off += lc.cmdsize;
++            }
++            return false;
++        };
++        std::vector<uint8_t> hdr(0x4000);
++        if (!acc.read(rt, hdr.data(), hdr.size())) return refuse("cannot read the runtime header");
++        uint8_t uLive[16], uFile[16];
++        if (!uuidOf(hdr.data(), hdr.size(), uLive)) return refuse("live runtime has no LC_UUID");
++        std::vector<uint8_t> img;
++        { FILE* rf = fopen("/usr/libexec/rosetta/runtime", "rb");
++          if (!rf) return refuse("cannot open the runtime file");
++          fseek(rf, 0, SEEK_END); const long n = ftell(rf); fseek(rf, 0, SEEK_SET);
++          if (n <= 0 || n > 0x800000) { fclose(rf); return refuse("runtime file size unexpected"); }
++          img.resize(size_t(n)); const size_t got = fread(img.data(), 1, img.size(), rf); fclose(rf);
++          if (got != img.size()) return refuse("cannot read the runtime file"); }
++        uint32_t magic = 0; memcpy(&magic, img.data(), 4);
++        if (magic != MH_MAGIC_64) return refuse("runtime file is not a thin arm64 Mach-O");
++        if (!uuidOf(img.data(), img.size(), uFile) || memcmp(uLive, uFile, 16)) return refuse("runtime file is not the loaded build (UUID)");
++        reclaimloc::Image im; im.p = img.data(); im.size = img.size();
++        // TEST ONLY (fail-closed gate, never set in shipping configs): AOE_RECLAIM_TEST_MUTATE=1 corrupts the locator's LOCAL
++        // copy (every casa in the image -> nop) and takes the "build differs" path -> must refuse = stock reclaim;
++        // =2 takes the "build differs" path on the intact copy -> exercises the LOCATED install end to end.
++        if (const char* tm = std::getenv("AOE_RECLAIM_TEST_MUTATE")) {
++            fp = false;
++            if (tm[0] == '1') for (size_t o = 0; o + 4 <= img.size(); o += 4) {
++                uint32_t w; memcpy(&w, &img[o], 4);
++                if ((w & 0xFFE0FC00U) == 0x88E07C00U) { w = 0xD503201FU; memcpy(&img[o], &w, 4); }
++            }
++            fprintf(lg, "[reclaimcap] TEST: mutate=%c (local copy only)\n", tm[0]);
++        }
++        // parseImage needs __DATA within the view: extend with zero-fill (bss) to the segment end
++        { reclaimloc::Image tmp = im; tmp.size = UINT64_MAX; std::string w2; uint64_t dHi = 0;
++          mach_header_64 h; memcpy(&h, img.data(), sizeof h); uint64_t off = sizeof h;
++          for (uint32_t i = 0; i < h.ncmds; i++) { load_command lc; memcpy(&lc, &img[off], sizeof lc);
++              if (lc.cmd == LC_SEGMENT_64) { segment_command_64 sg; memcpy(&sg, &img[off], sizeof sg);
++                  if (!strncmp(sg.segname, "__DATA", 16)) dHi = sg.vmaddr + sg.vmsize; }
++              off += lc.cmdsize; }
++          (void)tmp; (void)w2;
++          if (dHi > img.size() && dHi < 0x800000) img.resize(dHi, 0);
++          im.p = img.data(); im.size = img.size(); }
++        if (!reclaimloc::parseImage(im, why) || !reclaimloc::locate(im, L, why)) {
++            fprintf(lg, "[reclaimcap] locator: %s\n", why.c_str());
++            return refuse(fp ? "fingerprint matches but the locator refused" : "runtime build differs and the locator refused");
++        }
++        // live == file in every range the stubs and the checks depend on; branches into the padding are allowed
++        struct Rg { uint64_t lo, hi; } rgs[] = {{L.reclaimFn, L.exitKeep + 8}, {L.growCall - 40, L.allocResume + 8},
++                                                {L.lockFn, L.lockFn + 40}, {L.unlockFn, L.unlockFn + 40}, {L.minEpochFn, L.minEpochFn + 64}};
++        for (const auto& r : rgs) {
++            std::vector<uint8_t> live(r.hi - r.lo);
++            if (!acc.read(rt + r.lo, live.data(), live.size())) return refuse("cannot read live code");
++            for (uint64_t o = 0; o + 4 <= live.size(); o += 4) {
++                uint32_t lw2, fw; memcpy(&lw2, &live[o], 4); memcpy(&fw, &img[r.lo + o], 4);
++                if (lw2 == fw) continue;
++                const uint64_t at = rt + r.lo + o;
++                const bool br = (lw2 & 0x7C000000U) == 0x14000000U;   // b / bl
++                const uint64_t tgt = at + uint64_t(reclaimloc::sext(lw2 & 0x03FFFFFFU, 26) * 4);
++                if (!br || tgt < rt + L.padLo || tgt >= rt + L.padHi) return refuse("live code differs from the runtime file");
++                const uint64_t a = r.lo + o;
++                if (a == L.resetCall || a == L.backEdge || a == L.growCall) return refuse("a patch site is already patched");
++            }
++        }
++    }
++    if (fp) {   // fast path: the located sites must be exactly the verified fixed offsets
++        const bool same = L.reclaimFn == 0x8a4c && L.resetCall == 0x8a70 && L.minEpochFn == 0x55d4 && L.loopHead == 0x8ab4 &&
++                          L.backEdge == 0x8bb0 && L.exitKeep == 0x8bc8 && L.growCall == 0x42c0 && L.growFn == 0x4378 &&
++                          L.bestFitFn == 0x431c && L.allocResume == 0x42cc && L.lockFn == 0x1a5d0 && L.unlockFn == 0x1a694 &&
++                          L.heapLock == 0x3b568 && L.freeListHead == 0x3ba58 && L.padLo == kOffTextPad && L.stateLo == kOffState &&
++                          L.wReset == 0x97fff2d9U && L.wBackEdge == 0x17ffffc1U && L.wGrow == 0x9400002eU;
++        if (!same) return refuse("fingerprint matches but the located sites differ");
++    }
++    fprintf(lg, "[reclaimcap] sites %s: reclaim 0x%llx reset 0x%llx back-edge 0x%llx exit 0x%llx grow 0x%llx\n", fp ? "fixed (fingerprint, locator agrees)" : "LOCATED (runtime build differs)",
++            (unsigned long long)L.reclaimFn, (unsigned long long)L.resetCall, (unsigned long long)L.backEdge, (unsigned long long)L.exitKeep, (unsigned long long)L.growCall);
++    const uint64_t st = rt + L.stateLo;
++    const uint64_t padAt = L.padLo + (kOffLwPad2 - kOffTextPad);
++    Asm s(rt + padAt);
++    // (1) per-pass counter reset on the pass's own call to compute the minimum epoch (0x8a70: bl 0x55d4)
++    const uint64_t resetStub = s.here();
++    s.movAbs(17, st);
++    s.ins(0xF900001FU | ((kStRcCount / 8) << 10) | (17U << 5));   // str xzr, [x17, #count]
++    s.ins(0xD53BE050U);                                            // mrs x16, cntvct_el0
++    s.strX(16, 17, kStRcT0);                                       // pass start
++    s.bTo(rt + L.minEpochFn);                                            // tail call, lr = 0x8a74
++    // (2) loop back-edge 0x8bb0 (b 0x8ab4: next fragment x21 = x28 is eligible): count, stop at K
++    const uint64_t capStub = s.here();
++    s.movAbs(17, st);
++    s.ldrX(16, 17, kStRcCount);
++    s.addImm(16, 16, 1);
++    s.strX(16, 17, kStRcCount);
++    if (K) {
++        s.ins(0xF100001FU | (static_cast<uint32_t>(K & 0xfff) << 10) | (16U << 5));   // cmp x16, #K (K <= 4095)
++        s.bcond(HS, "cap");
++    }
++    if (budgetTicks) {
++        s.ins(0xF240161FU);                                        // tst x16, #63: check the clock every 64 fragments
++        s.bcond(NE, "cont");
++        s.ins(0xD53BE050U);                                        // mrs x16, cntvct_el0
++        s.ldrX(17, 17, kStRcT0);
++        s.subX(16, 16, 17);
++        s.ins(0xD2800000U | (static_cast<uint32_t>(budgetTicks & 0xffff) << 5) | 17U);          // movz x17, #lo16
++        s.ins(0xF2A00000U | (static_cast<uint32_t>((budgetTicks >> 16) & 0xffff) << 5) | 17U);  // movk x17, #hi16, lsl 16
++        s.cmpX(16, 17);
++        s.bcond(HS, "budget");
++    }
++    s.label("cont");
++    s.bTo(rt + L.loopHead);                                            // continue the loop as stock
++    s.label("budget");
++    s.movAbs(17, st);
++    s.ldrX(16, 17, kStRcBudgetHits);
++    s.addImm(16, 16, 1);
++    s.strX(16, 17, kStRcBudgetHits);
++    s.bTo(rt + L.exitKeep);
++    s.label("cap");
++    s.ldrX(16, 17, kStRcCaps);
++    s.addImm(16, 16, 1);
++    s.strX(16, 17, kStRcCaps);
++    s.bTo(rt + L.exitKeep);                                            // stock exit: free-list head = x28 (the rest), unlock
++    // (3) allocator grow call 0x42c0 (heap lock 0x3b568 held, x19 = thread arg, w20 = size + 7)
++    const uint64_t growStub = s.here();
++    s.ins(0xA9BE7BFDU);                 // stp x29, x30, [sp, #-32]!
++    s.ins(0x910003FDU);                 // mov x29, sp
++    s.ins(0xA90157F4U);                 // stp x20, x21, [sp, #16]  (x21 used as scratch, restored)
++    s.label("again");
++    s.movAbs(16, rt + L.freeListHead);
++    s.ldrX(21, 16, 0);                  // free-list head before the pass
++    s.ins(0xB4000000U | 21U);           // cbz x21 -> grow (patched below)
++    const size_t cbzPos = s.w.size() - 1;
++    s.movAbs(0, rt + L.heapLock);          // unlock the heap lock
++    s.movX(1, 19);
++    s.blTo(rt + L.unlockFn);
++    s.movX(0, 19);                      // another reclaim pass
++    s.blTo(rt + L.reclaimFn);
++    s.movAbs(0, rt + L.heapLock);          // re-lock
++    s.movX(1, 19);
++    s.blTo(rt + L.lockFn);
++    s.movAbs(17, st);
++    s.ldrX(16, 17, kStRcRetries);
++    s.addImm(16, 16, 1);
++    s.strX(16, 17, kStRcRetries);
++    s.ins(0x121D7280U | (20U << 5));    // and w0, w20, #0xfffffff8
++    s.blTo(rt + L.bestFitFn);                // retry the best-fit allocation
++    s.ins(0xB5000000U | 0U);            // cbnz x0 -> got (patched below)
++    const size_t cbnzPos = s.w.size() - 1;
++    s.movAbs(16, rt + L.freeListHead);         // progress? (head changed) -> try again, else grow
++    s.ldrX(16, 16, 0);
++    s.cmpX(16, 21);
++    s.bcond(NE, "again");
++    s.label("grow");
++    s.movAbs(17, st);
++    s.ldrX(16, 17, kStRcGrows);
++    s.addImm(16, 16, 1);
++    s.strX(16, 17, kStRcGrows);
++    s.ins(0xA94157F4U);                 // ldp x20, x21, [sp, #16]
++    s.ins(0xA8C27BFDU);                 // ldp x29, x30, [sp], #32
++    s.movX(0, 19);
++    s.bTo(rt + L.growFn);                 // the displaced call, as a tail call (returns to 0x42c4 as stock)
++    s.label("got");
++    s.ins(0xA94157F4U);                 // ldp x20, x21, [sp, #16]
++    s.ins(0xA8C27BFDU);                 // ldp x29, x30, [sp], #32
++    s.movAbs(30, rt + L.allocResume);          // resume after the allocate_from_node call: 0x42cc mov x21, x0
++    s.ins(0xD65F03C0U);                 // ret
++    if (!s.finish()) return refuse("stub assembly failed");
++    // patch the two forward conditional branches (cbz/cbnz imm19)
++    auto setImm19 = [&](size_t pos, const char* label) {
++        const int64_t d = static_cast<int64_t>(s.labels[label]) - static_cast<int64_t>(pos);
++        s.w[pos] |= (static_cast<uint32_t>(d) & 0x7ffffU) << 5;
++    };
++    setImm19(cbzPos, "grow");
++    setImm19(cbnzPos, "got");
++    if (padAt + s.w.size() * 4 > L.padHi) return refuse("stub too large");
++    std::vector<uint8_t> probe(s.w.size() * 4);
++    if (!acc.read(rt + padAt, probe.data(), probe.size())) return refuse("cannot read the text padding");
++    for (uint8_t b : probe) if (b != 0) return refuse("text padding is in use");
++    const uint64_t z[6] = {0, 0, 0, 0, 0, 0};
++    acc.write(st + kStRcCount, z, 48);
++    auto patchCode = [&](uint64_t addr, const void* bytes, size_t len) {
++        return acc.protect(addr, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, len) && acc.write(addr, bytes, len) &&
++               acc.protect(addr, VM_PROT_READ | VM_PROT_EXECUTE, len);
++    };
++    if (!patchCode(rt + padAt, s.w.data(), s.w.size() * 4)) return refuse("cannot write the stubs");
++    const uint32_t blReset = blWord(rt + L.resetCall, resetStub);
++    const uint32_t bCap = 0x14000000U | (static_cast<uint32_t>((static_cast<int64_t>(capStub) - static_cast<int64_t>(rt + L.backEdge)) >> 2) & 0x03ffffffU);
++    const uint32_t blGrow = blWord(rt + L.growCall, growStub);
++    // all-or-nothing: make every site writable first; only if all succeed, write the three words in a safe order
++    // (grow wrapper first: alone it only adds exact retry passes; then the per-pass reset; the cap/budget exit last).
++    // If any write fails, the words already written are restored to their gated originals.
++    struct Site { uint64_t off; uint32_t word, orig; } sites[] = {{L.growCall, blGrow, L.wGrow}, {L.resetCall, blReset, L.wReset},
++                                                                  {L.backEdge, bCap, L.wBackEdge}};
++    int prot = 0;
++    for (; prot < 3; prot++)
++        if (!acc.protect(rt + sites[prot].off, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, 4)) break;
++    if (prot < 3) {
++        for (int i = 0; i < prot; i++) acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
++        return refuse("cannot make a site writable (nothing patched)");
++    }
++    int wrote = 0;
++    for (; wrote < 3; wrote++)
++        if (!acc.write(rt + sites[wrote].off, &sites[wrote].word, 4)) break;
++    if (wrote < 3)
++        for (int i = wrote - 1; i >= 0; i--) acc.write(rt + sites[i].off, &sites[i].orig, 4);
++    for (int i = 0; i < 3; i++) acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
++    if (wrote < 3) return refuse("cannot write a site (rolled back to stock)");
++    rc.on = true; rc.rt = rt; rc.st = rt + L.stateLo; rc.K = K; rc.budgetUs = budgetUs;
++    fprintf(lg, "[reclaimcap] installed: K=%llu budget_us=%llu, stubs 0x%llx (%zu bytes)\n", (unsigned long long)K, (unsigned long long)budgetUs,
++            (unsigned long long)(rt + kOffLwPad2), s.w.size() * 4);
++    fflush(lg);
++    return true;
++}
++
++}  // namespace
++
++bool install(const Access& acc, uint64_t rt) { return installImpl(acc, rt); }
++
++}  // namespace reclaim_cap
+diff --git a/rosetta_loader/src/reclaim_cap.hpp b/rosetta_loader/src/reclaim_cap.hpp
+new file mode 100644
+index 0000000..56f5253
+--- /dev/null
++++ b/rosetta_loader/src/reclaim_cap.hpp
+@@ -0,0 +1,14 @@
++#pragma once
++#include <mach/mach.h>
++#include <cstddef>
++#include <cstdint>
++#include <functional>
++// F54a bounded reclaim (see reclaim_cap.cpp). Off unless AOE_RECLAIM_BUDGET_US or AOE_RECLAIM_CAP is set.
++namespace reclaim_cap {
++struct Access {
++    std::function<bool(uint64_t, void*, size_t)> read;
++    std::function<bool(uint64_t, const void*, size_t)> write;
++    std::function<bool(uint64_t, vm_prot_t, size_t)> protect;
++};
++bool install(const Access& acc, uint64_t runtimeBase);
++}
+diff --git a/rosetta_loader/src/reclaim_locate.hpp b/rosetta_loader/src/reclaim_locate.hpp
+new file mode 100644
+index 0000000..85cbe9e
+--- /dev/null
++++ b/rosetta_loader/src/reclaim_locate.hpp
+@@ -0,0 +1,224 @@
++// reclaim_locate.hpp — find F54a's patch sites in Rosetta's runtime by structure, not by fixed offsets (hitch, 2026-11-22).
++// Pure function over an image view (bytes indexed by VM offset, vmaddr 0 as in /usr/libexec/rosetta/runtime), so the same
++// code runs in the sidecar (live image read through the task port) and in the offline test tool (file + mutated copies).
++// Every check must pass; any doubt -> no result (the caller then refuses = stock behaviour).
++#pragma once
++#include <cstdint>
++#include <cstring>
++#include <string>
++#include <vector>
++#include <mach-o/loader.h>
++
++namespace reclaimloc {
++
++struct Sites {
++    uint64_t reclaimFn = 0;      // reclaim pass entry (stock 0x8a4c)
++    uint64_t resetCall = 0;      // bl minEpoch inside the pass (0x8a70)
++    uint64_t minEpochFn = 0;     // (0x55d4)
++    uint64_t loopHead = 0;       // (0x8ab4)
++    uint64_t backEdge = 0;       // b loopHead (0x8bb0)
++    uint64_t exitKeep = 0;       // keep-the-rest exit (0x8bc8)
++    uint64_t growCall = 0;       // bl grow in the allocator (0x42c0)
++    uint64_t growFn = 0;         // (0x4378)
++    uint64_t bestFitFn = 0;      // (0x431c)
++    uint64_t allocResume = 0;    // mov Xr, x0 after alloc_from_node (0x42cc)
++    uint64_t lockFn = 0, unlockFn = 0;          // (0x1a5d0, 0x1a694)
++    uint64_t heapLock = 0, freeListHead = 0;    // __DATA globals (0x3b568, 0x3ba58)
++    uint64_t padLo = 0, padHi = 0;              // zero padding at the end of __TEXT
++    uint64_t stateLo = 0, stateHi = 0;          // zero tail of __DATA (zero-fill)
++    // original words at the three patch sites (for the write-time re-check)
++    uint32_t wReset = 0, wBackEdge = 0, wGrow = 0;
++};
++
++struct Image {
++    const uint8_t* p = nullptr; uint64_t size = 0;      // p[off] = byte at VM offset off (file view: zero-fill beyond)
++    uint64_t textLo = 0, textHi = 0;                    // __TEXT,__text
++    uint64_t textSegEnd = 0, lastTextSect = 0;          // __TEXT vmsize, end of the last __TEXT section
++    uint64_t dataLo = 0, dataHi = 0, lastDataSect = 0;  // __DATA segment and end of its last section
++};
++
++// Parse the Mach-O header at p[0] (thin arm64, vmaddr 0). Returns false if the layout is not the expected shape.
++inline bool parseImage(Image& im, std::string& why) {
++    if (im.size < sizeof(mach_header_64)) { why = "image too small"; return false; }
++    mach_header_64 h; memcpy(&h, im.p, sizeof h);
++    if (h.magic != MH_MAGIC_64 || h.cputype != CPU_TYPE_ARM64) { why = "not a thin arm64 Mach-O"; return false; }
++    uint64_t off = sizeof h;
++    for (uint32_t i = 0; i < h.ncmds; i++) {
++        load_command lc; if (off + sizeof lc > im.size) { why = "load commands truncated"; return false; }
++        memcpy(&lc, im.p + off, sizeof lc);
++        if (lc.cmd == LC_SEGMENT_64) {
++            segment_command_64 sg; memcpy(&sg, im.p + off, sizeof sg);
++            const bool text = !strncmp(sg.segname, "__TEXT", 16), data = !strncmp(sg.segname, "__DATA", 16);
++            if (text) { if (sg.vmaddr != 0) { why = "__TEXT not at vmaddr 0"; return false; } im.textSegEnd = sg.vmsize; }
++            if (data) { im.dataLo = sg.vmaddr; im.dataHi = sg.vmaddr + sg.vmsize; }
++            for (uint32_t k = 0; k < sg.nsects; k++) {
++                section_64 s; memcpy(&s, im.p + off + sizeof sg + k * sizeof s, sizeof s);
++                if (text) {
++                    im.lastTextSect = std::max<uint64_t>(im.lastTextSect, s.addr + s.size);
++                    if (!strncmp(s.sectname, "__text", 16)) { im.textLo = s.addr; im.textHi = s.addr + s.size; }
++                }
++                if (data) im.lastDataSect = std::max<uint64_t>(im.lastDataSect, s.addr + s.size);
++            }
++        }
++        off += lc.cmdsize;
++    }
++    if (!im.textHi || !im.textSegEnd || !im.dataHi) { why = "segments/sections not found"; return false; }
++    if (im.dataHi > im.size) { why = "image view shorter than __DATA"; return false; }
++    return true;
++}
++
++// ── A64 decoding helpers (only what the signatures need) ──
++inline int64_t sext(uint64_t v, int bits) { const uint64_t m = 1ULL << (bits - 1); return int64_t((v ^ m) - m); }
++struct Dec {
++    const Image& im;
++    uint32_t w(uint64_t a) const { uint32_t x = 0; if (a + 4 <= im.size) memcpy(&x, im.p + a, 4); return x; }
++    static bool isB(uint32_t x) { return (x & 0xFC000000U) == 0x14000000U; }
++    static bool isBL(uint32_t x) { return (x & 0xFC000000U) == 0x94000000U; }
++    static uint64_t brTarget(uint64_t a, uint32_t x) { return a + sext(x & 0x03FFFFFFU, 26) * 4; }
++    static bool isBcond(uint32_t x, uint32_t c) { return (x & 0xFF000010U) == 0x54000000U && (x & 0xF) == c; }
++    static uint64_t imm19Target(uint64_t a, uint32_t x) { return a + sext((x >> 5) & 0x7FFFF, 19) * 4; }
++    static bool isCBZx(uint32_t x) { return (x & 0xFF000000U) == 0xB4000000U; }
++    static bool isCBNZx(uint32_t x) { return (x & 0xFF000000U) == 0xB5000000U; }
++    static uint32_t rd(uint32_t x) { return x & 31; }
++    static uint32_t rn(uint32_t x) { return (x >> 5) & 31; }
++    static uint32_t rm(uint32_t x) { return (x >> 16) & 31; }
++    static bool isLdrX(uint32_t x) { return (x & 0xFFC00000U) == 0xF9400000U; }
++    static bool isStrX(uint32_t x) { return (x & 0xFFC00000U) == 0xF9000000U; }
++    static uint64_t ldstOffX(uint32_t x) { return ((x >> 10) & 0xFFF) * 8; }
++    static bool isLdrb(uint32_t x) { return (x & 0xFFC00000U) == 0x39400000U; }
++    static bool isMovX(uint32_t x) { return (x & 0xFFE0FFE0U) == 0xAA0003E0U; }     // orr xd, xzr, xm
++    static bool isCmpX(uint32_t x) { return (x & 0xFFE0FC1FU) == 0xEB00001FU; }     // subs xzr, xn, xm
++    static bool isCmpWimm(uint32_t x, uint32_t imm) { return (x & 0xFFC0001FU) == 0x7100001FU && ((x >> 10) & 0xFFF) == imm; }
++    static bool isAdrp(uint32_t x) { return (x & 0x9F000000U) == 0x90000000U; }
++    static uint64_t adrpTarget(uint64_t a, uint32_t x) {
++        const uint64_t imm = (((x >> 5) & 0x7FFFF) << 2) | ((x >> 29) & 3);
++        return (a & ~0xFFFULL) + uint64_t(sext(imm, 21) << 12);
++    }
++    static bool isAddXimm(uint32_t x) { return (x & 0xFFC00000U) == 0x91000000U; }  // add xd, xn, #imm (no shift)
++    static uint64_t addImm(uint32_t x) { return (x >> 10) & 0xFFF; }
++    static bool isSubSpImm(uint32_t x) { return (x & 0xFFC003FFU) == 0xD10003FFU; }
++    static bool isStpPre(uint32_t x) { return (x & 0xFFC003E0U) == 0xA98003E0U; }   // stp x?, x?, [sp, #-n]!
++    static bool isRet(uint32_t x) { return x == 0xD65F03C0U; }
++    static bool isAddW7(uint32_t x, uint32_t r) { return x == (0x11001C00U | (r << 5) | r); }               // add wR, wR, #7
++    static bool isAndNot7(uint32_t x, uint32_t d, uint32_t n) { return x == (0x121D7000U | (n << 5) | d); }  // and wD, wN, #~7
++    static bool isCasaW(uint32_t x) { return (x & 0xFFE0FC00U) == 0x88E07C00U; }
++    static bool isSwplWzr(uint32_t x) { return (x & 0xFFFFFC00U) == 0xB87F8000U; }
++    static bool isMovz128M(uint32_t x) { return (x & 0xFFFFFFE0U) == 0xD2A10000U || (x & 0xFFFFFFE0U) == 0x52A10000U; }
++    // resolve "adrp xR, page; add xR, xR, #lo" ending at a (the add) -> address, or 0
++    uint64_t adrpAdd(uint64_t addAt, uint32_t r) const {
++        const uint32_t ad = w(addAt), ap = w(addAt - 4);
++        if (!isAddXimm(ad) || rd(ad) != r || rn(ad) != r || !isAdrp(ap) || rd(ap) != r) return 0;
++        return adrpTarget(addAt - 4, ap) + addImm(ad);
++    }
++};
++
++inline bool allZero(const Image& im, uint64_t lo, uint64_t hi) {
++    for (uint64_t a = lo; a < hi; a++) if (im.p[a]) return false;
++    return true;
++}
++
++// The locator. On success fills s and returns true; otherwise why says which check failed.
++inline bool locate(const Image& im, Sites& s, std::string& why) {
++    Dec d{im};
++    auto fail = [&](const char* m) { why = m; return false; };
++    // 1) the reclaim loop's eligibility block: cbz Xa; ldr Xb,[Xa,#0x100]; mov Xc,Xa; cmp Xb,Xd; b.hs EXIT; b HEAD
++    std::vector<uint64_t> hits;
++    for (uint64_t a = im.textLo; a + 24 <= im.textHi; a += 4) {
++        const uint32_t i0 = d.w(a);
++        if (!Dec::isCBZx(i0)) continue;
++        const uint32_t xa = Dec::rd(i0), i1 = d.w(a + 4), i2 = d.w(a + 8), i3 = d.w(a + 12), i4 = d.w(a + 16), i5 = d.w(a + 20);
++        if (!Dec::isLdrX(i1) || Dec::rn(i1) != xa || Dec::ldstOffX(i1) != 0x100) continue;
++        if (!Dec::isMovX(i2) || Dec::rm(i2) != xa) continue;
++        if (!Dec::isCmpX(i3) || Dec::rn(i3) != Dec::rd(i1)) continue;
++        if (!Dec::isBcond(i4, 2 /*HS*/) || !Dec::isB(i5)) continue;
++        hits.push_back(a);
++    }
++    if (hits.size() != 1) return fail(hits.empty() ? "eligibility block not found" : "eligibility block not unique");
++    const uint64_t E = hits[0];
++    const uint32_t xa = Dec::rd(d.w(E)), xc = Dec::rd(d.w(E + 8));
++    s.backEdge = E + 20; s.wBackEdge = d.w(s.backEdge);
++    s.loopHead = Dec::brTarget(s.backEdge, s.wBackEdge);
++    s.exitKeep = Dec::imm19Target(E + 16, d.w(E + 16));
++    if (s.loopHead >= E || s.loopHead < im.textLo || s.exitKeep <= E + 20 || s.exitKeep >= im.textHi) return fail("loop targets out of shape");
++    // 2) loop head reads the fragment kind: ldrb wK,[Xc,#0x40]; cmp wK,#4
++    { const uint32_t h0 = d.w(s.loopHead), h1 = d.w(s.loopHead + 4);
++      if (!Dec::isLdrb(h0) || Dec::rn(h0) != xc || ((h0 >> 10) & 0xFFF) != 0x40 || !Dec::isCmpWimm(h1, 4) || Dec::rn(h1) != Dec::rd(h0))
++          return fail("loop head is not the fragment-kind test"); }
++    // 3) keep-the-rest exit stores the not-yet-freed fragment Xa as the new free-list head G (a __DATA global)
++    { const uint32_t e0 = d.w(s.exitKeep), e1 = d.w(s.exitKeep + 4);
++      if (!Dec::isAdrp(e0) || !Dec::isStrX(e1) || Dec::rn(e1) != Dec::rd(e0) || Dec::rd(e1) != xa) return fail("exit does not keep the rest");
++      s.freeListHead = Dec::adrpTarget(s.exitKeep, e0) + Dec::ldstOffX(e1); }
++    if (s.freeListHead < im.dataLo || s.freeListHead >= im.dataHi) return fail("free-list head not in __DATA");
++    // 4) reclaim function entry: nearest "sub sp, sp, #imm" above the loop head, preceded by the end of another function
++    for (uint64_t a = s.loopHead; a >= im.textLo && s.loopHead - a < 0x400; a -= 4)
++        if (Dec::isSubSpImm(d.w(a))) { s.reclaimFn = a; break; }
++    if (!s.reclaimFn) return fail("reclaim entry not found");
++    { const uint32_t prev = d.w(s.reclaimFn - 4);
++      if (!(Dec::isBL(prev) || Dec::isB(prev) || Dec::isRet(prev))) return fail("reclaim entry not at a function boundary"); }
++    // 5) first bl in the pass = minimum-epoch call (reset site); then the free-list lock: adrp+add xQ = J; ...; bl LOCK; ldr [xQ,#8]
++    uint64_t jLock = 0;
++    for (uint64_t a = s.reclaimFn; a < s.loopHead; a += 4) {
++        const uint32_t x = d.w(a);
++        if (!Dec::isBL(x)) continue;
++        if (!s.resetCall) { s.resetCall = a; s.wReset = x; s.minEpochFn = Dec::brTarget(a, x); continue; }
++        if (!s.lockFn) {   // second bl: the lock of the free list; x0 came from a register holding adrp+add J
++            s.lockFn = Dec::brTarget(a, x);
++            for (uint64_t b = a - 4; b > s.resetCall && a - b <= 32; b -= 4) {
++                const uint32_t y = d.w(b);
++                if (Dec::isAddXimm(y)) { const uint64_t t = d.adrpAdd(b, Dec::rd(y)); if (t) { jLock = t; break; } }
++            }
++        }
++    }
++    if (!s.resetCall || !s.lockFn || !jLock) return fail("pass prologue (min-epoch call, list lock) not in shape");
++    if (jLock + 8 != s.freeListHead) return fail("list lock and free-list head disagree");
++    // 6) the lock routine takes the lock with casa on [x0]; the min-epoch routine locks with it and tail-calls UNLOCK (swpl wzr)
++    { bool cas = false; for (int k = 0; k < 10; k++) cas |= Dec::isCasaW(d.w(s.lockFn + 4 * k)); if (!cas) return fail("lock routine has no casa"); }
++    { bool lk = false; uint64_t un = 0;
++      for (int k = 0; k < 24; k++) {
++          const uint64_t a = s.minEpochFn + 4 * k; const uint32_t x = d.w(a);
++          if (Dec::isBL(x) && Dec::brTarget(a, x) == s.lockFn) lk = true;
++          if (Dec::isB(x)) { un = Dec::brTarget(a, x); break; }
++      }
++      if (!lk || !un) return fail("min-epoch routine not lock/compute/unlock");
++      bool sw = false; for (int k = 0; k < 10; k++) sw |= Dec::isSwplWzr(d.w(un + 4 * k));
++      if (!sw) return fail("unlock routine has no swpl wzr");
++      s.unlockFn = un; }
++    // 7) allocator grow site: add w20,w20,#7; and w0,w20,#~7; bl F; mov x21,x0; cbnz x0,GOT; mov x0,x19; bl GROW;
++    //    and w1,w20,#~7; bl A; mov x21,x0  (registers are fixed: the stub relies on x19/w20/x21)
++    hits.clear();
++    for (uint64_t a = im.textLo; a + 40 <= im.textHi; a += 4) {
++        if (!Dec::isAddW7(d.w(a), 20) || !Dec::isAndNot7(d.w(a + 4), 0, 20) || !Dec::isBL(d.w(a + 8))) continue;
++        if (d.w(a + 12) != 0xAA0003F5U || !Dec::isCBNZx(d.w(a + 16)) || Dec::rd(d.w(a + 16)) != 0) continue;
++        if (d.w(a + 20) != 0xAA1303E0U || !Dec::isBL(d.w(a + 24)) || !Dec::isAndNot7(d.w(a + 28), 1, 20)) continue;
++        if (!Dec::isBL(d.w(a + 32)) || d.w(a + 36) != 0xAA0003F5U) continue;
++        hits.push_back(a);
++    }
++    if (hits.size() != 1) return fail(hits.empty() ? "allocator grow site not found" : "allocator grow site not unique");
++    const uint64_t G = hits[0];
++    s.bestFitFn = Dec::brTarget(G + 8, d.w(G + 8));
++    s.growCall = G + 24; s.wGrow = d.w(s.growCall); s.growFn = Dec::brTarget(s.growCall, s.wGrow);
++    s.allocResume = G + 36;
++    if (Dec::imm19Target(G + 16, d.w(G + 16)) != G + 40) return fail("allocator success branch out of shape");
++    // 8) before the site: mov x0,x19; bl RECLAIM; adrp+add x0 = H; mov x1,x19; bl LOCK  (heap lock H)
++    { const uint32_t bl1 = d.w(G - 4), mv = d.w(G - 8);
++      if (!Dec::isBL(bl1) || Dec::brTarget(G - 4, bl1) != s.lockFn || mv != 0xAA1303E1U) return fail("heap re-lock before the site not in shape");
++      s.heapLock = d.adrpAdd(G - 12, 0);
++      const uint32_t blr = d.w(G - 20), mv0 = d.w(G - 24);
++      if (!s.heapLock || !Dec::isBL(blr) || Dec::brTarget(G - 20, blr) != s.reclaimFn || mv0 != 0xAA1303E0U)
++          return fail("allocator does not call this reclaim before the site"); }
++    if (s.heapLock < im.dataLo || s.heapLock >= im.dataHi) return fail("heap lock not in __DATA");
++    // 9) grow allocates the 128 MB chunk
++    { bool c = false; for (int k = 0; k < 200; k++) c |= Dec::isMovz128M(d.w(s.growFn + 4 * k)); if (!c) return fail("grow routine has no 128 MB constant"); }
++    // 10) the best-fit routine is the one the allocator used first (same F before the reclaim call)
++    { bool f = false; for (uint64_t a = G - 64; a < G - 20; a += 4) { const uint32_t x = d.w(a); f |= Dec::isBL(x) && Dec::brTarget(a, x) == s.bestFitFn; }
++      if (!f) return fail("best-fit routine not called before reclaim"); }
++    // 11) free space: zero padding after the last __TEXT section, zero tail of __DATA
++    s.padLo = (im.lastTextSect + 0x3FF) & ~0x3FFULL; s.padHi = im.textSegEnd;
++    s.stateLo = (im.lastDataSect + 0xFFF) & ~0xFFFULL; s.stateHi = im.dataHi;
++    if (s.padHi < s.padLo + 0x2000 || !allZero(im, s.padLo, s.padHi)) return fail("no zero __TEXT padding of >= 8 KB");
++    if (s.stateHi < s.stateLo + 0x1000) return fail("no zero __DATA tail of >= 4 KB");
++    if (s.stateLo + 0x1000 <= im.size && !allZero(im, s.stateLo, s.stateLo + 0x1000)) return fail("__DATA tail not zero");
++    return true;
++}
++
++}  // namespace reclaimloc
+diff --git a/rosetta_loader/src/sidecar.cpp b/rosetta_loader/src/sidecar.cpp
+index e105286..c5484a6 100644
+--- a/rosetta_loader/src/sidecar.cpp
++++ b/rosetta_loader/src/sidecar.cpp
+@@ -91,6 +91,9 @@ bool readParent(mach_port_t task, uint64_t addr, void* dst, size_t size);
+ 
+ void dumpBlockIfNew(mach_port_t parentTask, uint64_t module_data_ptr, uint64_t block_ptr,
+                     const IRInstr* ir, uint64_t num_instrs) {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     if (g_profile.file == nullptr) {
+         return;
+     }
+@@ -2952,6 +2955,9 @@ bool spawnReceiveThread(mach_port_t servicePort, mach_port_t parentTaskPort) {
+ }
+ 
+ void samplerConfigFromEnv(SamplerConfig& cfg) {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     // X87_SAMPLE names the profile and enables the sampler, exactly as
+     // X87_PROFILE does for the block profiler.
+     if (const char* path = getenv("X87_SAMPLE"); path != nullptr && path[0] != '\0') {
+@@ -3019,6 +3025,9 @@ void unlinkWindowSeries(const std::string& path) {
+ }
+ 
+ void startSampler(mach_port_t parentTaskPort, uint64_t runtimeBase, const SamplerConfig& in) {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     if (in.path.empty()) {
+         return;
+     }
+@@ -3083,6 +3092,9 @@ void startSampler(mach_port_t parentTaskPort, uint64_t runtimeBase, const Sample
+ // a SIGTERM handler as well as from the normal exit path, because the sidecar is
+ // usually killed rather than allowed to return from main.
+ void flushSamplerIfEnabled() {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     if (!g_sampler_running.load(std::memory_order_acquire)) {
+         return;
+     }
+@@ -3106,6 +3118,9 @@ void flushSamplerIfEnabled() {
+ }
+ 
+ void dumpCountersIfEnabled(mach_port_t /*parentTaskPort*/) {
++#ifdef AOE_RELEASE
++    return;
++#endif
+     if (g_profile.file == nullptr) {
+         return;
+     }
+diff --git a/rosetta_loader/src/stub_asm.cpp b/rosetta_loader/src/stub_asm.cpp
+index 85e6848..dd9a439 100644
+--- a/rosetta_loader/src/stub_asm.cpp
++++ b/rosetta_loader/src/stub_asm.cpp
+@@ -1,6 +1,8 @@
+ #include "stub_asm.hpp"
++#include "subst_count.hpp"
+ 
+ #include <cstddef>
++#include <cstdio>
+ #include <cstdint>
+ #include <cstring>
+ #include <cstdlib>
+@@ -1062,8 +1064,151 @@ static StubBlobs buildSoftFaultHook(uint64_t handlerAddr, uint64_t decodeOpcodeA
+     auto label=[&](const char* n){labels[n]=h.size();};
+     auto branch=[&](const char* n,int kind,unsigned cond=0){fixes.push_back({h.size(),n,kind,cond});ins(0);};
+     auto constant=[&](unsigned reg,uint64_t value){ins(movz(reg,value&0xffff,0));ins(movk(reg,(value>>16)&0xffff,16));ins(movk(reg,(value>>32)&0xffff,32));};
++    // AOE_SUBST_PC / AOE_SUBST_ORIG / AOE_SUBST_NEW (hex strings of equal length, <= 255 bytes):
++    // translation-time substitution. While the guest bytes at [PC, PC+N) equal ORIG, the decoder
++    // is shown NEW for every instruction it decodes inside that range. Guest memory is never
++    // written; on any mismatch the stock bytes are decoded.
++    std::vector<uint8_t> substOrig,substNew; uint64_t substPC=0;
++    {
++        const char *sp=std::getenv("AOE_SUBST_PC"),*so=std::getenv("AOE_SUBST_ORIG"),*sn=std::getenv("AOE_SUBST_NEW");
++        auto unhex=[](const char* t,std::vector<uint8_t>& out){
++            auto nib=[](char c)->int{return c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:-1;};
++            for(;t[0]&&t[1];t+=2){int a=nib(t[0]),b2=nib(t[1]);if(a<0||b2<0){out.clear();return;}out.push_back(uint8_t(a<<4|b2));}
++            if(t[0])out.clear();};
++        if(sp&&so&&sn){
++            char* e=nullptr;substPC=std::strtoull(sp,&e,0);unhex(so,substOrig);unhex(sn,substNew);
++            if(!substPC||*e||substOrig.empty()||substOrig.size()!=substNew.size()||substOrig.size()>255||(substPC&0xffff000000000000ULL)){substPC=0;substOrig.clear();substNew.clear();}
++        }
++    }
++    // AOE_SUBST_LIST="pc:orig:new[,pc:orig:new...]" (hex, each pair of equal length <= 255,
++    // at most 16 entries, 4 KB of bytes in all): several translation-time substitutions with
++    // the same rule as the single one above, checked per entry. When the list is set, the
++    // single-entry variables (if also set) become its first entry and the list code below is
++    // emitted instead of the single-entry code; without AOE_SUBST_LIST the emitted hook is the
++    // same as before. A malformed list disables every substitution of this start.
++    struct SubstEntry { uint64_t pc; std::vector<uint8_t> orig, neu; };
++    std::vector<SubstEntry> substList;
++    if(const char* sl=std::getenv("AOE_SUBST_LIST"); sl&&*sl){
++        auto unhex=[](const std::string& t,std::vector<uint8_t>& out)->bool{
++            auto nib=[](char c)->int{return c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:-1;};
++            if(t.empty()||t.size()%2)return false;
++            for(size_t i=0;i<t.size();i+=2){int a=nib(t[i]),b2=nib(t[i+1]);if(a<0||b2<0)return false;out.push_back(uint8_t(a<<4|b2));}
++            return true;};
++        bool ok=true; size_t total=0; std::string all(sl);
++        if(!substOrig.empty()) substList.push_back({substPC,substOrig,substNew});
++        for(size_t pos=0;ok&&pos<=all.size();){
++            size_t e=all.find_first_of(",;",pos); if(e==std::string::npos)e=all.size();
++            std::string item=all.substr(pos,e-pos); pos=e+1;
++            if(item.empty()){if(e==all.size())break; continue;}
++            size_t c1=item.find(':'),c2=c1==std::string::npos?c1:item.find(':',c1+1);
++            if(c2==std::string::npos||item.find(':',c2+1)!=std::string::npos){ok=false;break;}
++            SubstEntry en; char* ep=nullptr; std::string pcs=item.substr(0,c1);
++            en.pc=std::strtoull(pcs.c_str(),&ep,0);
++            if(!en.pc||*ep||(en.pc&0xffff000000000000ULL)||!unhex(item.substr(c1+1,c2-c1-1),en.orig)||!unhex(item.substr(c2+1),en.neu)
++               ||en.orig.size()!=en.neu.size()||en.orig.size()>255){ok=false;break;}
++            substList.push_back(std::move(en));
++            if(e==all.size())break;
++        }
++        for(auto& en:substList)total+=2*((en.orig.size()+3)&~size_t(3));
++        if(!ok||substList.size()>16||total>4096){
++            fprintf(stdout,"M2: AOE_SUBST_LIST malformed or too large: no substitution in this start\n");
++            substList.clear();
++        }
++        if(ok&&substList.empty())fprintf(stdout,"M2: AOE_SUBST_LIST empty\n");
++        substPC=0;substOrig.clear();substNew.clear();   // single-entry code off when the list is set
++        if(!substList.empty())fprintf(stdout,"M2: translation substitution list: %zu entries\n",substList.size());
++    }
++    const size_t substN=substOrig.size(),substPad=(substN+3)&~size_t(3);
++    const uint64_t substOrigAddr=handlerAddr+4,substNewAddr=substOrigAddr+substPad;
++    if(substN){
++        ins(b_uncond(static_cast<int>(1+2*substPad/4)));
++        h.insert(h.end(),substOrig.begin(),substOrig.end());h.resize(4+substPad,0);
++        h.insert(h.end(),substNew.begin(),substNew.end());h.resize(4+2*substPad,0);
++    }
++    std::vector<uint64_t> listOrigAddr,listNewAddr;
++    if(!substList.empty()){
++        size_t dataBytes=0; for(auto& en:substList)dataBytes+=2*((en.orig.size()+3)&~size_t(3));
++        ins(b_uncond(static_cast<int>(1+dataBytes/4)));
++        for(auto& en:substList){
++            const size_t pad=(en.orig.size()+3)&~size_t(3);
++            listOrigAddr.push_back(handlerAddr+h.size());
++            h.insert(h.end(),en.orig.begin(),en.orig.end());h.resize(h.size()+pad-en.orig.size(),0);
++            listNewAddr.push_back(handlerAddr+h.size());
++            h.insert(h.end(),en.neu.begin(),en.neu.end());h.resize(h.size()+pad-en.neu.size(),0);
++        }
++    }
+     ins(sub_imm_x(SP,SP,96));
+     ins(stp_offset(0,1,SP,0));ins(stp_offset(2,3,SP,16));ins(str_x_offset(LR,SP,32));
++    const uint64_t cnt=subst_count::addr();
++    if(!substList.empty()){std::vector<uint64_t> pcs;for(auto& en:substList)pcs.push_back(en.pc);subst_count::setEntries(pcs);}
++    else if(substN){subst_count::setEntries({substPC});}
++    if(!substList.empty()){
++        // x13 = guest address of the instruction being decoded. For each entry: inside
++        // [pc, pc+n) and all n guest bytes equal ORIG -> decode from NEW at the same offset.
++        // A mismatching entry falls through to the next one; no entry -> stock decode.
++        ins(ldr_x_offset(12,SP,0));ins(ldrb_w_offset(9,12,0));ins(cmp_imm_w(9,0));branch("lnosubst",2,COND_NE);
++        ins(ldr_x_offset(10,12,kDecoderCtxCodeBase));ins(ldr_x_offset(11,12,kDecoderCtxCodeEnd));
++        ins(ldr_w_offset(9,SP,8));ins(add_reg_x(13,10,9));
++        for(size_t i=0;i<substList.size();i++){
++            const auto& en=substList[i]; const size_t n=en.orig.size();
++            const std::string nx="lnext"+std::to_string(i),lp="lcmp"+std::to_string(i);
++            constant(14,en.pc);ins(cmp_reg_x(13,14));branch(nx.c_str(),2,COND_LO);
++            constant(14,en.pc+n);ins(cmp_reg_x(13,14));branch(nx.c_str(),2,COND_HS);
++            ins(movz(15,0,0));
++            label(lp.c_str());
++            constant(16,en.pc);ins(add_reg_x(16,16,15));ins(ldrb_w_offset(9,16,0));
++            constant(16,listOrigAddr[i]);ins(add_reg_x(16,16,15));ins(ldrb_w_offset(17,16,0));
++            ins(cmp_reg_w(9,17));branch(nx.c_str(),2,COND_NE);
++            ins(add_imm(15,15,1));ins(cmp_imm_w(15,static_cast<unsigned>(n)));branch(lp.c_str(),2,COND_NE);
++            if(cnt){constant(17,cnt+8*i);ins(movz(9,1,0));ins(0xF829023FU);}   // stadd x9,[x17]: entry i applied
++            constant(14,en.pc);constant(15,listNewAddr[i]);constant(16,listNewAddr[i]+n);branch("lapply",0);
++            label(nx.c_str());
++        }
++        branch("lnosubst",0);
++        label("lapply");   // x13 insn, x14 entry pc, x15 entry NEW, x16 end of NEW
++        ins(sub_reg_x(14,13,14));ins(add_reg_x(15,15,14));
++        ins(str_x_offset(10,SP,40));ins(str_x_offset(11,SP,48));ins(str_x_offset(13,SP,56));ins(str_x_offset(15,SP,64));
++        ins(str_x_offset(15,12,kDecoderCtxCodeBase));ins(str_x_offset(16,12,kDecoderCtxCodeEnd));
++        ins(ldr_x_offset(0,SP,0));ins(movz(1,0,0));ins(ldp_offset(2,3,SP,16));branch("stock",1);
++        ins(ldr_x_offset(12,SP,0));ins(ldp_offset(10,11,SP,40));
++        ins(str_x_offset(10,12,kDecoderCtxCodeBase));ins(str_x_offset(11,12,kDecoderCtxCodeEnd));
++        ins(ldr_x_offset(13,SP,56));
++        ins(cmp_imm_w(0,0));branch("done",2,COND_NE);
++        ins(str_x_offset(13,12,kDecoderCtxInsnStart));
++        ins(ldr_x_offset(15,SP,64));
++        ins(ldr_x_offset(9,12,kDecoderCtxCursor));ins(sub_reg_x(9,9,15));ins(add_reg_x(9,9,13));ins(str_x_offset(9,12,kDecoderCtxCursor));
++        branch("done",0);
++        label("lnosubst");
++        ins(ldp_offset(0,1,SP,0));ins(ldp_offset(2,3,SP,16));
++    }
++    if(substN){
++        ins(ldr_x_offset(12,SP,0));ins(ldrb_w_offset(9,12,0));ins(cmp_imm_w(9,0));branch("nosubst",2,COND_NE);
++        ins(ldr_x_offset(10,12,kDecoderCtxCodeBase));ins(ldr_x_offset(11,12,kDecoderCtxCodeEnd));
++        ins(ldr_w_offset(9,SP,8));ins(add_reg_x(13,10,9));
++        constant(14,substPC);ins(cmp_reg_x(13,14));branch("nosubst",2,COND_LO);
++        constant(14,substPC+substN);ins(cmp_reg_x(13,14));branch("nosubst",2,COND_HS);
++        ins(movz(15,0,0));
++        label("substcmp");
++        constant(16,substPC);ins(add_reg_x(16,16,15));ins(ldrb_w_offset(9,16,0));
++        constant(16,substOrigAddr);ins(add_reg_x(16,16,15));ins(ldrb_w_offset(17,16,0));
++        ins(cmp_reg_w(9,17));branch("nosubst",2,COND_NE);
++        ins(add_imm(15,15,1));ins(cmp_imm_w(15,static_cast<unsigned>(substN)));branch("substcmp",2,COND_NE);
++        if(cnt){constant(17,cnt);ins(movz(9,1,0));ins(0xF829023FU);}   // stadd x9,[x17]: the single entry applied
++        constant(14,substPC);ins(sub_reg_x(14,13,14));constant(15,substNewAddr);ins(add_reg_x(15,15,14));
++        ins(str_x_offset(10,SP,40));ins(str_x_offset(11,SP,48));ins(str_x_offset(13,SP,56));
++        ins(str_x_offset(15,12,kDecoderCtxCodeBase));constant(9,substNewAddr+substN);ins(str_x_offset(9,12,kDecoderCtxCodeEnd));
++        ins(ldr_x_offset(0,SP,0));ins(movz(1,0,0));ins(ldp_offset(2,3,SP,16));branch("stock",1);
++        ins(ldr_x_offset(12,SP,0));ins(ldp_offset(10,11,SP,40));
++        ins(str_x_offset(10,12,kDecoderCtxCodeBase));ins(str_x_offset(11,12,kDecoderCtxCodeEnd));
++        ins(ldr_x_offset(13,SP,56));
++        ins(cmp_imm_w(0,0));branch("done",2,COND_NE);
++        ins(str_x_offset(13,12,kDecoderCtxInsnStart));
++        constant(14,substPC);ins(sub_reg_x(14,13,14));constant(15,substNewAddr);ins(add_reg_x(15,15,14));
++        ins(ldr_x_offset(9,12,kDecoderCtxCursor));ins(sub_reg_x(9,9,15));ins(add_reg_x(9,9,13));ins(str_x_offset(9,12,kDecoderCtxCursor));
++        branch("done",0);
++        label("nosubst");
++        ins(ldp_offset(0,1,SP,0));ins(ldp_offset(2,3,SP,16));
++    }
+     branch("stock",1);
+     ins(cmp_imm_w(0,1));branch("done",2,COND_NE);
+     ins(ldr_x_offset(12,SP,0));ins(ldrb_w_offset(9,12,0));ins(cmp_imm_w(9,0));branch("done",2,COND_NE);
+diff --git a/rosetta_loader/src/subst_count.cpp b/rosetta_loader/src/subst_count.cpp
+new file mode 100644
+index 0000000..18465bd
+--- /dev/null
++++ b/rosetta_loader/src/subst_count.cpp
+@@ -0,0 +1,81 @@
++#include "subst_count.hpp"
++#include <mach/mach_vm.h>
++#include <pthread.h>
++#include <unistd.h>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++
++namespace subst_count {
++namespace {
++constexpr uint64_t kAddr = 0x7f0070000000ULL;   // fixed, next to the sidecar's other own allocations
++constexpr uint64_t kSize = 0x4000;
++constexpr size_t kMax = 16;
++uint64_t g_addr = 0;
++std::vector<uint64_t> g_pcs;
++mach_port_t g_task = MACH_PORT_NULL;
++FILE* logFile() {
++    static FILE* fh = [] {
++        const char* p = std::getenv("AOE_RECLAIM_LOG");
++        FILE* f = (p && *p) ? fopen(p, "a") : nullptr;
++        return f ? f : stdout;
++    }();
++    return fh;
++}
++void* reader(void*) {
++    FILE* lg = logFile();
++    const size_t n = g_pcs.size() < kMax ? g_pcs.size() : kMax;
++    fprintf(lg, "[subst] watching %zu entries\n", n); fflush(lg);
++    std::vector<bool> seen(n, false);
++    bool summary = false;
++    const auto t0 = std::chrono::steady_clock::now();
++    for (unsigned it = 0;; it++) {
++        usleep(it < 40 ? 250000 : 2000000);   // 4 Hz for the first 10 s, then every 2 s
++        uint64_t c[kMax] = {0};
++        mach_vm_size_t got = 0;
++        if (mach_vm_read_overwrite(g_task, g_addr, sizeof c, reinterpret_cast<mach_vm_address_t>(c), &got) != KERN_SUCCESS)
++            return nullptr;   // the game has exited
++        const long s = long(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - t0).count());
++        bool all = true;
++        for (size_t i = 0; i < n; i++) {
++            if (!seen[i] && c[i]) {
++                seen[i] = true;
++                fprintf(lg, "[subst] applied: entry %zu pc 0x%llx (first after %ld s)\n", i, (unsigned long long)g_pcs[i], s);
++                fflush(lg);
++            }
++            all = all && seen[i];
++        }
++        if (!summary && s >= 300) {
++            summary = true;
++            fprintf(lg, "[subst] counts at 300 s:");
++            for (size_t i = 0; i < n; i++) fprintf(lg, " %zu:%llu", i, (unsigned long long)c[i]);
++            fprintf(lg, "\n"); fflush(lg);
++        }
++        if (all && summary) return nullptr;
++    }
++}
++}  // namespace
++
++bool allocate(mach_port_t task) {
++    const char* l = std::getenv("AOE_SUBST_LIST");
++    const char* p = std::getenv("AOE_SUBST_PC");
++    if (!((l && *l) || (p && *p))) return false;
++    const char* on = std::getenv("AOE_SUBST_COUNT");   // test/gate switch only; players never get the page
++    if (!(on && on[0] == '1' && on[1] == '\0')) return false;
++    mach_vm_address_t a = kAddr;
++    if (mach_vm_allocate(task, &a, kSize, VM_FLAGS_FIXED) != KERN_SUCCESS || a != kAddr) {
++        fprintf(logFile(), "[subst] counters not available (allocation failed); substitutions still run\n"); fflush(logFile());
++        return false;
++    }
++    g_addr = kAddr; g_task = task;
++    return true;
++}
++uint64_t addr() { return g_addr; }
++void setEntries(const std::vector<uint64_t>& pcs) { g_pcs = pcs; }
++void start(mach_port_t task) {
++    if (!g_addr || g_pcs.empty()) return;
++    g_task = task;
++    pthread_t th;
++    if (pthread_create(&th, nullptr, reader, nullptr) == 0) pthread_detach(th);
++}
++}  // namespace subst_count
+diff --git a/rosetta_loader/src/subst_count.hpp b/rosetta_loader/src/subst_count.hpp
+new file mode 100644
+index 0000000..7228bb0
+--- /dev/null
++++ b/rosetta_loader/src/subst_count.hpp
+@@ -0,0 +1,17 @@
++#pragma once
++#include <mach/mach.h>
++#include <cstdint>
++#include <vector>
++// subst_count: proof that the translation-time substitutions (AOE_SUBST_PC/ORIG/NEW, AOE_SUBST_LIST) were APPLIED.
++// Only with AOE_SUBST_COUNT=1 (a test/gate switch, never set by the launcher) and a substitution configured, the sidecar allocates one page of counters in the target (its own allocation, never a
++// game page); the decoder hook adds 1 to entry i's counter each time it shows entry i's NEW bytes to the decoder.
++// The sidecar reads only these counters and writes one status line per entry to AOE_RECLAIM_LOG (else stdout):
++//   [subst] watching <n> entries
++//   [subst] applied: entry <i> pc 0x<pc> (first after <s> s)
++//   [subst] counts at 300 s: <i>:<count> ...
++namespace subst_count {
++bool allocate(mach_port_t task);              // before the decoder hook is built; no-op without a substitution
++uint64_t addr();                               // counter page in the target, 0 = off
++void setEntries(const std::vector<uint64_t>& pcs);   // called by the hook builder, entry i -> counter i
++void start(mach_port_t task);                  // reader thread
++}
