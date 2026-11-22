@@ -1,0 +1,141 @@
+# Signs, notarizes and packs a release. Nothing is built here: the payload is the unsigned tarball the
+# maintainer built with mk-release and tested in the game (full replays, no desync), attached to the DRAFT
+# release of the tag as aoe2-mac-softfault-<tag>-unsigned.tar.gz. Its SHA-256 is committed in
+# release/<tag>.payload.sha256, so the bytes that get signed are exactly the tested ones.
+# Result: aoe2-mac-softfault-<tag>.tar.gz + SHA256SUMS on the same draft release. Publishing the draft
+# (after a local check of the notarized app and one real game start) is a separate, manual step.
+#
+# Manual start only (workflow_dispatch): publishing a release creates its tag, and a tag trigger would then
+# sign again with new timestamps, which would change the tarball's SHA-256 that scripts/get.sh pins.
+#
+# Secrets (set by the maintainer): DEVELOPER_ID_P12_BASE64 (the Developer ID Application identity as a
+# .p12, base64), DEVELOPER_ID_P12_PASSWORD (its export password; may be unset for a password-less .p12), NOTARY_API_KEY_P8 (App Store Connect API key, the .p8 text or its base64),
+# NOTARY_API_KEY_ID, NOTARY_API_ISSUER_ID.
+# Each job holds only what it needs: the signing job has the keys but read-only access to the repository;
+# the jobs that read and write the draft release see no key. Actions are pinned by commit.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (its draft release carries the unsigned payload), e.g. v2.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # a draft release is visible only with write access
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Download the tested payload and check its SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          want=$(cut -d' ' -f1 "release/$TAG.payload.sha256")
+          mkdir payload
+          gh release download "$TAG" -R "$REPO" -p "aoe2-mac-softfault-$TAG-unsigned.tar.gz" -D payload
+          got=$(sha256sum "payload/aoe2-mac-softfault-$TAG-unsigned.tar.gz" | cut -d' ' -f1)
+          echo "want $want"; echo "got  $got"
+          test "$got" = "$want"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: payload
+          path: payload/
+
+  sign:
+    needs: fetch
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: payload
+          path: payload
+      - name: Unpack
+        env:
+          TAG: ${{ inputs.tag }}
+        run: mkdir work && tar -xzf "payload/aoe2-mac-softfault-$TAG-unsigned.tar.gz" -C work
+
+      - name: Signing identity and notary key
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+        run: |
+          [[ -n "$P12" && -n "$P8" ]] || { echo "signing secrets missing"; exit 1; }
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          pw=$(uuidgen)
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          print -r -- "$P12" | base64 -D > "$RUNNER_TEMP/id.p12"
+          # DEVELOPER_ID_P12_PASSWORD is the .p12's export password (empty for a password-less .p12).
+          security import "$RUNNER_TEMP/id.p12" -k "$kc" -P "${P12_PASSWORD:-}" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$kc" | grep -c "Developer ID Application"
+          if [[ "$P8" == -----BEGIN* ]]; then print -r -- "$P8" > "$RUNNER_TEMP/notary.p8"
+          else print -r -- "$P8" | base64 -D > "$RUNNER_TEMP/notary.p8"; fi
+        shell: zsh {0}
+
+      - name: Sign, notarize, staple, pack
+        env:
+          TAG: ${{ inputs.tag }}
+          SIGN_IDENTITY: Developer ID Application
+          NOTARY_KEY: ${{ runner.temp }}/notary.p8
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER_ID }}
+        run: zsh .github/scripts/sign-payload.sh work dist
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/notary.p8"
+
+      - name: Verify the signed app
+        run: |
+          app=$(ls -d work/aoe2-mac-softfault/bin/*.app)
+          codesign --verify --strict --deep --verbose=2 "$app"
+          spctl -a -vv "$app"
+          xcrun stapler validate "$app"
+          codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'TeamIdentifier|Runtime|Timestamp'
+          for f in work/aoe2-mac-softfault/bin/x87sidecar work/aoe2-mac-softfault/bin/ntdll.so work/aoe2-mac-softfault/bin/dxmt/x86_64-unix/winemetal.so; do
+            codesign --verify --strict "$f"; codesign -dv "$f" 2>&1 | grep -E 'TeamIdentifier|flags'
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed
+          path: dist/
+
+  attach:
+    needs: sign
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed
+          path: dist
+      - name: Attach to the draft release (it stays a draft)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          test "$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft)" = true || { echo "release $TAG is not a draft"; exit 1; }
+          gh release upload "$TAG" "aoe2-mac-softfault-$TAG.tar.gz" SHA256SUMS -R "$REPO" --clobber
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
