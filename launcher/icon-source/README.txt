@@ -1,0 +1,1 @@
+Trebuchet icon concept assets. Foreground is an AI-recreated approximation of the approved artwork, not a pixel-exact extraction. Background is a full square gradient. Import layers into Apple Icon Composer and review alignment, lighting, mask, and appearance settings. The masked preview is for visual inspection only.

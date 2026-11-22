@@ -1,0 +1,72 @@
+From f9b9d520f861528498394c4ab8443963884c5444 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pawe=C5=82=20Ko=C5=82odziejski?= <aquadran@gmail.com>
+Date: Sat, 13 Jun 2026 10:02:50 +0200
+Subject: [PATCH 1/2] fix(airconv): fix compile metal shader with toolchain
+ from XCode 27 beta 1
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Paweł Kołodziejski <aquadran@gmail.com>
+(cherry picked from commit 06065754af91352caaf8db87d4566fecc4124552)
+---
+ src/airconv/shaders/air_tessellation.metal | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/airconv/shaders/air_tessellation.metal b/src/airconv/shaders/air_tessellation.metal
+index d4ae53b..2d7e0a2 100644
+--- a/src/airconv/shaders/air_tessellation.metal
++++ b/src/airconv/shaders/air_tessellation.metal
+@@ -150,7 +150,7 @@ struct TessMeshWorkload {
+ 
+ int
+ get_next_index(threadgroup int *out_count) {
+-  return __metal_atomic_fetch_add_explicit(out_count, 1, int(memory_order_relaxed), __METAL_MEMORY_SCOPE_THREADGROUP__);
++  return atomic_fetch_add_explicit(reinterpret_cast<threadgroup atomic_int *>(out_count), 1, memory_order_relaxed);
+ }
+ 
+ template <partitioning partition>
+-- 
+2.54.0 (Apple Git-157)
+
+
+From ecd8af61f0cec1e4ed6f9a8f08381254a494d176 Mon Sep 17 00:00:00 2001
+From: dxmt-label <noreply@example.invalid>
+Date: Sun, 22 Nov 2026 14:07:17 +0100
+Subject: [PATCH 2/2] fix(dxmt): copy full rows/slices of texture initial data
+ regardless of SysMemPitch
+
+D3D11_SUBRESOURCE_DATA::SysMemPitch / SysMemSlicePitch are strides, not lengths.
+initWithData clamped the bytes copied per row (2D/array) and per slice (3D) to the
+pitch, so an application passing a pitch smaller than a full row (e.g. AoE2:DE's
+256x1 B8G8R8A8 UI gradient ramps with SysMemPitch = 256) got only part of each row
+uploaded. Copy the full row/slice and keep the pitch as the source stride, as the
+1D path, wined3d and D3DMetal do.
+---
+ src/dxmt/dxmt_resource_initializer.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/dxmt/dxmt_resource_initializer.cpp b/src/dxmt/dxmt_resource_initializer.cpp
+index 8229fe9..ba02309 100644
+--- a/src/dxmt/dxmt_resource_initializer.cpp
++++ b/src/dxmt/dxmt_resource_initializer.cpp
+@@ -152,10 +152,14 @@ ResourceInitializer::initWithData(
+   size_t texel_size = MTLGetTexelSize(texture->pixelFormat());
+   size_t bytes_per_row_needed = texel_size * align(width_sub, block_size) / block_size;
+   size_t bytes_per_row_increment = is_1d_tex ? bytes_per_row_needed : row_pitch;
+-  size_t bytes_per_row_valid = is_1d_tex ? bytes_per_row_needed : std::min(row_pitch, bytes_per_row_needed);
++  // D3D11: SysMemPitch/SysMemSlicePitch are only the stride between rows/slices; every row is still
++  // width * bytes-per-texel long (and every slice bytes_per_image_needed long), even when the application
++  // passes a smaller pitch (common for single-row textures, e.g. Age of Empires II DE's 256x1 UI gradient ramps).
++  // Clamping the copy to the pitch left the rest of the row uninitialised.
++  size_t bytes_per_row_valid = bytes_per_row_needed;
+   size_t bytes_per_image_needed = bytes_per_row_needed * align(height_sub, block_size) / block_size;
+   size_t bytes_per_image_increment = is_3d_tex ? depth_pitch : bytes_per_image_needed;
+-  size_t bytes_per_image_valid = is_3d_tex ? std::min(depth_pitch, bytes_per_image_needed) : bytes_per_image_needed;
++  size_t bytes_per_image_valid = bytes_per_image_needed;
+   size_t total_bytes_needed = bytes_per_image_needed * depth_sub;
+ 
+   std::lock_guard<dxmt::mutex> lock(mutex_);
+-- 
+2.54.0 (Apple Git-157)
+
