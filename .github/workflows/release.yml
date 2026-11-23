@@ -132,12 +132,13 @@ jobs:
           spctl -a -vv -t open --context context:primary-signature "$dmg"
           xcrun stapler validate "$dmg"
           mnt=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
-          codesign --verify --strict --deep --verbose=2 "$mnt/Trebuchet.app"
-          spctl -a -vv "$mnt/Trebuchet.app"
-          xcrun stapler validate "$mnt/Trebuchet.app"
-          codesign -dv --verbose=2 "$mnt/Trebuchet.app" 2>&1 | grep -E 'TeamIdentifier|Runtime|Timestamp'
+          app=$(ls -d "$mnt"/*.app | head -1)   # Trebuchet.app (releases) or "Trebuchet Update Test.app" (uptest-* tags)
+          codesign --verify --strict --deep --verbose=2 "$app"
+          spctl -a -vv "$app"
+          xcrun stapler validate "$app"
+          codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'TeamIdentifier|Runtime|Timestamp'
           for f in x87sidecar ntdll.so dxmt/x86_64-unix/winemetal.so; do
-            codesign --verify --strict "$mnt/Trebuchet.app/Contents/Resources/Trebuchet/bin/$f"
+            codesign --verify --strict "$app/Contents/Resources/Trebuchet/bin/$f"
           done
           hdiutil detach "$mnt"
 
