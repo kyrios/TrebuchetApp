@@ -58,6 +58,10 @@ bundle_version() { [[ -f "$1/Contents/Info.plist" ]] && /usr/libexec/PlistBuddy 
 # game commands below, so the bottle and Steam keep their own backend.
 backend=${AOE2_BACKEND:-dxmt}
 game_cxenv=${CX_ENV:-}
+# The game is started directly, not through Steam's Play button. Steam sets these two for every game it launches; with
+# them Steamworks treats this start as Steam's and does not ask Steam to start a second copy (it does that when the game
+# folder has no steam_appid.txt, which is the normal case). Only the game gets them, never Steam or CaptureAge.
+steam_ids="SteamAppId=813780 SteamGameId=813780"
 case "$backend" in
   bottle) ;;
   wined3d) game_cxenv="CX_GRAPHICS_BACKEND=wined3d WINEDXVK=0${game_cxenv:+ $game_cxenv}" ;;
@@ -69,7 +73,7 @@ run_stock() {
   local log="$PREFIX/logs/run-stock-$stamp.log"
   echo "mode stock, backend $backend, log: $log"
   [[ -n "${AOE2_DRYRUN:-}" ]] && return 0
-  CX_ENV="$game_cxenv" "$stock_app/Contents/SharedSupport/CrossOver/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1
+  CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$stock_app/Contents/SharedSupport/CrossOver/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1
 }
 
 fallback() {
@@ -307,7 +311,7 @@ if [[ -d "$PREFIX/$dxmt_set" ]] && ! dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set"
     || fallback "could not switch the DXMT files."
   echo "dxmt: copy now uses $dxmt_set" >> "$PREFIX/logs/reports-$stamp.log"
 fi
-CX_ENV="$game_cxenv" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
+CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
 wine_pid=$!
 
 # Backend self-check (read-only): which backend DLL the game process has mapped.
