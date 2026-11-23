@@ -56,8 +56,9 @@ final class Runner: ObservableObject {
             Task { @MainActor in self?.refreshCaptureAge() }
         }
     }
-    /// "Restart with fixes": run-aoe2.sh closes CaptureAge's processes only (anchored pattern) and starts it in the copy.
-    func restartCaptureAge(_ fixes: Fixes) { launch(fixes, target: .captureAge, extraArgs: ["--restart"]) }
+    /// "Restart with fixes": run-aoe2.sh captureage closes a CaptureAge that is flagless or outside the copy (anchored pattern,
+    /// CaptureAge's processes only) and starts it in the copy.
+    func restartCaptureAge(_ fixes: Fixes) { launch(fixes, target: .captureAge) }
     private var process: Process?
     private var sawMode = false
 

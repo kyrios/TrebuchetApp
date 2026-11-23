@@ -38,7 +38,7 @@ fi
 payload_id() {
   { [[ -n "${PREBUILT:-}" ]] && (cd "$PREBUILT" && find . -type f ! -name '.*' ! -path './*.app/*' | LC_ALL=C sort | while read -r f; do print "$f $(sha "$f")"; done)
     print "MANIFEST $(sha "$mf_in")"
-    for f in run-aoe2.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf install.sh; do print "$f $(sha "$here/$f")"; done
+    for f in run-aoe2.sh run-captureage.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf install.sh; do [[ -f "$here/$f" ]] && print "$f $(sha "$here/$f")"; done
   } | shasum -a 256 | cut -d' ' -f1
 }
 # --payload-id: print the id and stop. The app runs this at each Launch and compares it with PREFIX/.prepared.
@@ -103,6 +103,11 @@ if [[ -n "${PREBUILT:-}" && -d "$PREBUILT/dxmt" ]]; then cp -cR "$PREBUILT/dxmt"
   done
 } > "$PREFIX/MANIFEST"
 cp "$here/run-aoe2.sh" "$PREFIX/run-aoe2.sh"
+# CaptureAge (2.1+): its launcher and watchdog, started by run-aoe2.sh (captureage mode, and the in-game button watcher).
+if [[ -f "$here/run-captureage.sh" ]]; then
+  cp "$here/run-captureage.sh" "$PREFIX/run-captureage.sh"; chmod +x "$PREFIX/run-captureage.sh"
+  print "ours prefix:run-captureage.sh $(sha "$PREFIX/run-captureage.sh")" >> "$PREFIX/MANIFEST"
+fi
 # Version-bound rules (names, grades, where their patterns live). Its hash is listed too, so the
 # launcher's gate notices a changed file. A future signed update channel replaces this line's check.
 cp "$here/mk_reorder.py" "$PREFIX/mk_reorder.py"
