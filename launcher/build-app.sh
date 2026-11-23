@@ -13,7 +13,10 @@ name=$(sed -n 's/^APP_NAME=//p' "$here/../scripts/names.conf" | head -1); name=$
 # TEST_BUILD=1: a local test app ("<name> <version> Test", own bundle id and support folder, no migration, no Sparkle).
 # The release signing refuses it (sign-app.sh checks TrebuchetTestBuild).
 [[ -n ${TEST_BUILD:-} ]] && name="$name ${VERSION:-2.1} Test"
-[[ -n ${SPARKLE_TEST_FEED:-} ]] && name="Trebuchet Update Test"
+[[ -n ${SPARKLE_TEST_FEED:-} || -n ${UPDATETEST_ID:-} ]] && name="Trebuchet Update Test"
+# UPDATETEST_ID=1: a release-configured build (real feed, real key; CI signs it like a release) under its own name and
+# bundle id, for the real-key update test. It never shares settings with a player's Trebuchet. sign-app.sh accepts it
+# only for uptest-* tags.
 app="$OUT/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -77,7 +80,7 @@ cat > "$app/Contents/Info.plist" <<'EOF'
 EOF
 bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${bid:-io.github.kyrios.trebuchet}
 [[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
-[[ -n ${SPARKLE_TEST_FEED:-} ]] && bid="$bid.updatetest"
+[[ -n ${SPARKLE_TEST_FEED:-} || -n ${UPDATETEST_ID:-} ]] && bid="$bid.updatetest"
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
 if [[ -n ${TEST_BUILD:-} ]]; then

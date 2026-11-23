@@ -20,6 +20,8 @@ A=$(print -l "$W"/*.app(N) | head -1); [[ -d $A ]] || { echo "no app in $IN"; ex
 T=$A/Contents/Resources/Trebuchet; B=$T/bin
 [[ -f $T/MANIFEST && -d $B ]] || { echo "the app carries no payload ($T)"; exit 1; }
 /usr/libexec/PlistBuddy -c 'Print :TrebuchetTestBuild' "$A/Contents/Info.plist" >/dev/null 2>&1 && { echo "this is a TEST_BUILD app, not a release"; exit 1; }
+bid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$A/Contents/Info.plist")
+if [[ $TAG == v* && $bid != io.github.kyrios.trebuchet ]]; then echo "release $TAG must carry the bundle id io.github.kyrios.trebuchet, not $bid"; exit 1; fi
 # A release never carries a test update feed: Sparkle apps must point at the GitHub Pages feed, with no test marker.
 if [[ -d $A/Contents/Frameworks/Sparkle.framework ]]; then
   feed=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$A/Contents/Info.plist" 2>/dev/null || true)
