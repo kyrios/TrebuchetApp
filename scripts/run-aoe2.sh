@@ -51,10 +51,10 @@ esac
 # "run-aoe2.sh soft --restart": a game running WITHOUT the fixes (e.g. one that CaptureAge started through Steam) is
 # closed first and started again with them. A game that already runs with the fixes is left alone.
 game_restart=0; [[ "$1" == soft && "$2" == --restart ]] && game_restart=1
-# captureage mode starts the game in the background for CaptureAge: skip the intro video (the game sometimes hangs on
-# "Opening video..." when its window is not in front, and CaptureAge then waits for port 4341 forever). Added to the
-# player's own AOE2_ARGS, never replacing them.
-if (( ca_mode == 1 )) && [[ " ${AOE2_ARGS:-} " != *" SKIPINTRO "* ]]; then AOE2_ARGS="${AOE2_ARGS:+$AOE2_ARGS }SKIPINTRO"; fi
+# Every start skips the intro video (the game's own SKIPINTRO option). Under CrossOver the intro never plays: it fails at
+# once, or the game hangs on "Opening video..." with a black window (and in captureage mode CaptureAge then waits for
+# port 4341 forever). Added to the player's own AOE2_ARGS, never replacing them, never twice.
+if [[ " ${AOE2_ARGS:-} " != *" SKIPINTRO "* ]]; then AOE2_ARGS="${AOE2_ARGS:+$AOE2_ARGS }SKIPINTRO"; fi
 ca_game_running=0
 PREFIX=${0:A:h}
 bottle=${AOE2_BOTTLE:-"Age of Empires II Definitive Edition"}

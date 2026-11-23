@@ -478,9 +478,9 @@ struct GameTab: View {
                 Text(Names.text("UI_CROSSOVER_FOOTER", "Trebuchet reads CrossOver and never changes it.")).font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                TextField(Names.text("UI_ARGS", "Extra launch options"), text: $fixes.args, prompt: Text("SKIPINTRO"))
+                TextField(Names.text("UI_ARGS", "Extra launch options"), text: $fixes.args, prompt: Text("NORECORDING"))
             } footer: {
-                Text(Names.text("UI_ARGS_FOOTER", "For single-player tests only.")).font(.caption).foregroundStyle(.secondary)
+                Text(Names.text("UI_ARGS_FOOTER", "For single-player tests only. The intro video is always skipped.")).font(.caption).foregroundStyle(.secondary)
             }
             if Install.managesPrefix {
                 Section {
