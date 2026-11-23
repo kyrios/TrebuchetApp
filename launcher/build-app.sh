@@ -75,6 +75,7 @@ cat > "$app/Contents/Info.plist" <<'EOF'
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.strategy-games</string>
 	<key>NSHighResolutionCapable</key><true/>
+	<key>NSLocalNetworkUsageDescription</key><string>Steam, when Trebuchet starts it, looks for computers on your network for LAN games and Remote Play. Trebuchet itself does not use your network.</string>
 </dict>
 </plist>
 EOF
