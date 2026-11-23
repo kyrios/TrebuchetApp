@@ -307,6 +307,31 @@ fi
 # into the copy before the start. Never mixed. Only matters with the dxmt backend.
 textfix=off; dxmt_set=dxmt-crossover
 if [[ -d "$PREFIX/dxmt-textfix" ]] && (( want_textfix )); then dxmt_set=dxmt-textfix; textfix=on; fi
+# The text-fix set is used only when this Mac's macOS is at least the minimum its winemetal.so was built for (read
+# from the file's Mach-O load commands; the player's Mac has no otool). Fail-closed: unreadable = CrossOver's set.
+# minos is encoded as xxxx.yy.zz in nibbles; the result is major*10000+minor*100+patch, 0 = unknown.
+macho_minos() {
+  local -a w; local nc sz i=8 n=0 cmd v
+  w=($(od -An -tu4 -v -N 32768 "$1" 2>/dev/null)) || { print 0; return; }
+  (( ${#w} >= 8 && w[1] == 4277009103 )) || { print 0; return; }   # 0xfeedfacf: thin 64-bit Mach-O, little-endian
+  nc=${w[5]}; sz=${w[6]}; (( sz + 32 <= 32768 )) || { print 0; return; }
+  while (( n < nc )); do
+    cmd=${w[i+1]}
+    if (( cmd == 50 )); then v=${w[i+4]}; print $(( (v>>16)*10000 + ((v>>8)&255)*100 + (v&255) )); return; fi   # LC_BUILD_VERSION
+    if (( cmd == 36 )); then v=${w[i+3]}; print $(( (v>>16)*10000 + ((v>>8)&255)*100 + (v&255) )); return; fi   # LC_VERSION_MIN_MACOSX
+    (( w[i+2] >= 8 )) || break; i=$(( i + w[i+2]/4 )); n=$((n+1))
+  done
+  print 0
+}
+os_num() { local -a p; p=(${(s:.:)1}); print $(( ${p[1]:-0}*10000 + ${p[2]:-0}*100 + ${p[3]:-0} )); }
+if [[ $textfix == on ]]; then
+  tf_min=$(macho_minos "$PREFIX/dxmt-textfix/x86_64-unix/winemetal.so"); os_ver=$(/usr/bin/sw_vers -productVersion 2>/dev/null)
+  if (( tf_min == 0 || $(os_num "${os_ver:-0}") < tf_min )); then
+    dxmt_set=dxmt-crossover; textfix=off
+    (( tf_min )) && tf_need="macOS $(( tf_min/10000 )).$(( tf_min/100%100 ))" || tf_need="a macOS version that could not be read"
+    echo "textfix needs $tf_need; using standard labels (this Mac: macOS ${os_ver:-unknown})" >> "$PREFIX/logs/reports-$stamp.log"
+  fi
+fi
 dxmt_same() { [[ "$(cd "$1" 2>/dev/null && find . -type f | LC_ALL=C sort | xargs shasum -a 256 2>/dev/null)" == "$(cd "$2" && find . -type f | LC_ALL=C sort | xargs shasum -a 256)" ]]; }
 echo "mode soft, CrossOver $copy_ver, textfix $textfix, .text $AOE_SOFTFAULT_PC-$AOE_SOFTFAULT_END, reorder $reorder, t13 $t13, f54a $f54a, fastqpc $fastqpc, t4 $t4, msync $msync, backend $backend, log: $log"
 [[ -n "${AOE2_DRYRUN:-}" ]] && exit 0
