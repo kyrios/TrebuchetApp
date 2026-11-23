@@ -19,6 +19,13 @@ if [[ $IN == *.zip ]]; then ditto -x -k "$IN" "$W"; else ditto "$IN" "$W/${IN:t}
 A=$(print -l "$W"/*.app(N) | head -1); [[ -d $A ]] || { echo "no app in $IN"; exit 1; }
 T=$A/Contents/Resources/Trebuchet; B=$T/bin
 [[ -f $T/MANIFEST && -d $B ]] || { echo "the app carries no payload ($T)"; exit 1; }
+# A release never carries a test update feed: Sparkle apps must point at the GitHub Pages feed, with no test marker.
+if [[ -d $A/Contents/Frameworks/Sparkle.framework ]]; then
+  feed=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$A/Contents/Info.plist" 2>/dev/null || true)
+  [[ $feed == https://kyrios.github.io/TrebuchetApp/appcast.xml ]] || { echo "SUFeedURL is '$feed', not the release feed"; exit 1; }
+  /usr/libexec/PlistBuddy -c 'Print :TrebuchetTestFeed' "$A/Contents/Info.plist" >/dev/null 2>&1 && { echo "test-feed build"; exit 1; }
+  [[ -n "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$A/Contents/Info.plist" 2>/dev/null)" ]] || { echo "no SUPublicEDKey"; exit 1; }
+fi
 ts=(--timestamp); [[ $ID == - ]] && ts=()
 sign() { codesign -f -s "$ID" --options runtime $ts "$@"; }
 

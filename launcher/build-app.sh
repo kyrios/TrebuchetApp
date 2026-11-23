@@ -71,7 +71,11 @@ ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
 if [[ -n $pub ]]; then
   pb=/usr/libexec/PlistBuddy; plist="$app/Contents/Info.plist"
-  $pb -c "Add :SUFeedURL string https://kyrios.github.io/TrebuchetApp/appcast.xml" "$plist"
+  # SPARKLE_TEST_FEED (local update tests only): a file:// feed. Such a build is marked TrebuchetTestFeed, and the
+  # release signing (sign-app.sh) refuses any app whose feed is not the GitHub Pages one.
+  feed=https://kyrios.github.io/TrebuchetApp/appcast.xml
+  if [[ -n ${SPARKLE_TEST_FEED:-} ]]; then feed=$SPARKLE_TEST_FEED; $pb -c "Add :TrebuchetTestFeed bool true" "$plist"; fi
+  $pb -c "Add :SUFeedURL string $feed" "$plist"
   $pb -c "Add :SUPublicEDKey string $pub" "$plist"
   $pb -c "Add :SUEnableAutomaticChecks bool true" "$plist"
   $pb -c "Add :SUAutomaticallyUpdate bool true" "$plist"
