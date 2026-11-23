@@ -39,10 +39,19 @@ bottle=${AOE2_BOTTLE:-"Age of Empires II Definitive Edition"}
 bottles=${CX_BOTTLE_PATH:-$HOME/Library/Application Support/CrossOver/Bottles}
 exe="C:/Program Files (x86)/Steam/steamapps/common/AoE2DE/AoE2DE_s.exe"
 unix_exe="$bottles/$bottle/drive_c/Program Files (x86)/Steam/steamapps/common/AoE2DE/AoE2DE_s.exe"
+# 2.1.4: the game may sit in another Steam library (an external disk) or a folder chosen in Settings (AOE2_GAME_DIR).
+# find-game.sh reads the bottle's libraryfolders.vdf and drive letters; without a result the default path above stays.
+game_from=default
+if game_loc=$(zsh "$PREFIX/find-game.sh" "$bottles/$bottle" 2>/dev/null); then
+  unix_exe=${${(M)${(f)game_loc}:#unix=*}#unix=}; exe=${${(M)${(f)game_loc}:#win=*}#win=}; game_from=${${(M)${(f)game_loc}:#from=*}#from=}
+fi
+# A game process shows its Windows path as argv[0]: any drive letter, anchored.
+game_re='^[A-Za-z]:.*.AoE2DE_s\.exe( |$)'
 copy_app="$PREFIX/SoftFault-CrossOver.app"
 stock_app=${CX_APP:-/Applications/CrossOver.app}
 mkdir -p "$PREFIX/logs"
 stamp=$(date +%Y%m%d-%H%M%S)
+echo "game: $exe ($game_from)" >> "$PREFIX/logs/reports-$stamp.log"
 
 notify() {
   echo "$1"
@@ -86,7 +95,7 @@ fallback() {
   exit $?
 }
 
-if pgrep -if "^C:.Program Files \(x86\).Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe" >/dev/null; then
+if pgrep -if "$game_re" >/dev/null; then
   notify "AoE2 is already running."; exit 1
 fi
 [[ -n "${AOE_HUD:-}" ]] && export MTL_HUD_ENABLED=1
@@ -385,7 +394,7 @@ window_report() {
   local fasn=$(lsappinfo front 2>/dev/null)
   front=$(lsappinfo info -only name "$fasn" 2>/dev/null | sed -n '1s/^"\([^"]*\)".*/\1/p')
   local fpid=$(lsappinfo info -only pid "$fasn" 2>/dev/null | sed -n 's/.*pid = \([0-9]*\).*/\1/p')
-  gpid=$(pgrep -if "^C:.Program Files \(x86\).Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe" | head -1)
+  gpid=$(pgrep -if "$game_re" | head -1)
   res=$(/usr/bin/osascript -l JavaScript - "$gpid" 2>/dev/null <<'JXA'
 function run(argv){ObjC.import("CoreGraphics");ObjC.import("AppKit");
 var a=ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly|$.kCGWindowListExcludeDesktopElements,0)));
@@ -409,7 +418,7 @@ JXA
 }
 check_backend() {
   local gpid
-  gpid=$(pgrep -if "^C:.Program Files \(x86\).Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe" | head -1)
+  gpid=$(pgrep -if "$game_re" | head -1)
   [[ -n "$gpid" ]] || return 1
   /usr/sbin/lsof -Fn -p "$gpid" 2>/dev/null | grep -qF "$backend_dll"
 }
@@ -429,7 +438,7 @@ for i in {1..45}; do
   fi
   if grep -qE "software fault (bridge|translator|entries)" "$log" 2>/dev/null; then
     kill $wine_pid 2>/dev/null
-    pkill -if "^C:.Program Files \(x86\).Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe" 2>/dev/null
+    pkill -if "$game_re" 2>/dev/null
     sleep 3
     unset AOE_SOFTFAULT_PC AOE_SOFTFAULT_END WINELOADER AOELAB_SIDECAR_PATH AOE2_SOFTFAULT
     unset AOE_SUBST_PC AOE_SUBST_ORIG AOE_SUBST_NEW AOE_SUBST_LIST AOE_RECLAIM_BUDGET_US AOE_RECLAIM_LOG AOE2_FASTQPC AOE2_FAST_CARET AOE2_FAST_SETCURSOR AOE2_FAST_KMTMEM
