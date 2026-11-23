@@ -19,6 +19,7 @@ enum LaunchState: Equatable {
     case noBottle
     case notInApplications          // opened from the disk image (or translocated): move it first
 
+    var isCaptureAge: Bool { if case .captureAgeRunning = self { return true }; return false }
     /// Shows a spinner.
     var isBusy: Bool {
         switch self {
@@ -41,18 +42,22 @@ final class Runner: ObservableObject {
     @Published var lines: [String] = []
     /// CaptureAge seen in the process list (read-only, refreshed every 5 s while the app is open).
     @Published var captureAge: CaptureAge.Status = .none
+    @Published var captureAgeWindow = false
     private var caTimer: Timer?
 
     func refreshCaptureAge() {
         Task.detached {
             let s = CaptureAge.status()
-            await MainActor.run { if self.captureAge != s { self.captureAge = s } }
+            await MainActor.run {
+                if self.captureAge != s.status { self.captureAge = s.status }
+                if self.captureAgeWindow != s.window { self.captureAgeWindow = s.window }
+            }
         }
     }
     func watchCaptureAge() {
         guard caTimer == nil else { return }
         refreshCaptureAge()
-        caTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        caTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshCaptureAge() }
         }
     }

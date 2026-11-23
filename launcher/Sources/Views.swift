@@ -49,7 +49,7 @@ struct MainView: View {
             }
             .padding(.bottom, Space.l)
 
-            StatusCard(state: runner.state, fixes: fixes, openSettings: { openSettings() })
+            StatusCard(state: runner.state, fixes: fixes, captureAgeWindow: runner.captureAgeWindow, openSettings: { openSettings() })
                 .padding(.bottom, Space.l)
 
             Button { runner.launch(fixes) } label: {
@@ -79,7 +79,7 @@ struct MainView: View {
                 .padding(.top, Space.s)
                 .accessibilityHint(Text("Starts CaptureAge with Trebuchet's fixes. Games it opens get the fixes too."))
             }
-            if runner.captureAge == .outside {
+            if runner.captureAge == .outside, !runner.state.isCaptureAge {
                 HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
@@ -136,6 +136,7 @@ struct MainView: View {
 struct StatusCard: View {
     let state: LaunchState
     let fixes: Fixes
+    var captureAgeWindow = true
     let openSettings: () -> Void
 
     var body: some View {
@@ -166,7 +167,8 @@ struct StatusCard: View {
         switch state {
         case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .launching, .preparing: ProgressView().controlSize(.small).frame(height: 22)
-        case .running, .captureAgeRunning: Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet)
+        case .running: Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet)
+        case .captureAgeRunning: if captureAgeWindow { Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet) } else { ProgressView().controlSize(.small).frame(height: 22) }
         case .fixOff, .fallback, .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .steamOffline: Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
         case .alreadyRunning: Image(systemName: "info.circle.fill").foregroundStyle(Color.trebuchet)
@@ -190,7 +192,7 @@ struct StatusCard: View {
         case .preparing: return Names.text("UI_PREPARING_TITLE", "Getting ready")
         case .notInApplications: return Names.text("UI_MOVE_TITLE", "Move Trebuchet to Applications")
         case .running: return Names.text("UI_RUNNING", "Age of Empires II is running")
-        case .captureAgeRunning: return Names.text("UI_CA_RUNNING", "CaptureAge is running")
+        case .captureAgeRunning: return captureAgeWindow ? Names.text("UI_CA_RUNNING", "CaptureAge is running") : Names.text("UI_CA_STARTING_TITLE", "Starting CaptureAge")
         case .fixOff: return Names.text("UI_FIXOFF", "One fix is off for this start")
         case .fallback: return Names.text("UI_FALLBACK", "Started without fixes")
         case .steamOffline: return Names.text("UI_STEAMOFFLINE", "Steam is offline")
@@ -208,8 +210,10 @@ struct StatusCard: View {
         case .launching(let l), .preparing(let l): return l
         case .notInApplications: return Names.text("UI_MOVE_DETAIL", "Drag Trebuchet from this window into your Applications folder, then open it from there.")
         case .running(let plain): return plain ? Names.text("UI_RUNNING_PLAIN", "Without fixes, like Steam's Play button.") : summary
-        case .captureAgeRunning(let plain): return plain ? Names.text("UI_CA_RUNNING_PLAIN", "Without fixes. Games it opens run like Steam's Play button.")
-                                                          : Names.text("UI_CA_RUNNING_DETAIL", "Games it opens get Trebuchet's fixes.")
+        case .captureAgeRunning(let plain):
+            if !captureAgeWindow { return Names.text("UI_CA_STARTING", "Starting CaptureAge… its window can take about a minute to appear.") }
+            return plain ? Names.text("UI_CA_RUNNING_PLAIN", "Without fixes. Games it opens run like Steam's Play button.")
+                         : Names.text("UI_CA_RUNNING_DETAIL", "Games it opens get Trebuchet's fixes.")
         case .fixOff(let l), .steamOffline(let l): return l
         case .fallback(let l): return l.prefix(1).uppercased() + l.dropFirst()
         case .alreadyRunning: return Names.text("UI_ALREADY_DETAIL", "Switch to the game window to play.")
