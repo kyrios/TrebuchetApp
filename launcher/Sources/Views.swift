@@ -241,7 +241,28 @@ struct SettingsView: View {
             GameTab().tabItem { Label(Names.text("UI_TAB_GAME", "Game"), systemImage: "gamecontroller") }.tag("game")
         }
         .frame(minWidth: 600, idealWidth: 600, maxWidth: .infinity)
+        .background(SettingsWindowSizer())
     }
+}
+
+/// SwiftUI opens the Settings window at a default size (900 x 450) instead of the content's ideal size, so the window
+/// is sized here once it exists: 600 pt wide, the Fixes tab's natural height capped to the screen, fully on screen.
+/// Its Forms scroll, so every control is reachable. (User resizing: SwiftUI's Settings window does not take it, even
+/// with .resizable set; a follow-up.)
+struct SettingsWindowSizer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async {
+            guard let w = v.window else { return }
+            w.styleMask.insert(.resizable)
+            w.contentMinSize = NSSize(width: 600, height: SettingsSize.minHeight)
+            // Content size excludes the title bar and tab toolbar; the cap already leaves room for them.
+            w.setContentSize(NSSize(width: 600, height: SettingsSize.ideal(900)))
+            if let s = w.screen ?? NSScreen.main { w.setFrame(w.constrainFrameRect(w.frame, to: s), display: true) }
+        }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 /// One fix: name, marker, measured gain, info popover, and its control.
