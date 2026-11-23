@@ -75,6 +75,9 @@ bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${
 [[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
+# NO_CAPTUREAGE=1: a build without the Launch CaptureAge button and its detection (the scripts keep the mode; nothing
+# in the app reaches it). The game's own stock-game warning stays.
+[[ -n ${NO_CAPTUREAGE:-} ]] && /usr/libexec/PlistBuddy -c "Add :TrebuchetCaptureAge bool false" "$app/Contents/Info.plist"
 if [[ -n ${TEST_BUILD:-} ]]; then
   /usr/libexec/PlistBuddy -c "Add :TrebuchetTestBuild bool true" -c "Add :TrebuchetSupportDir string $name" "$app/Contents/Info.plist"
 fi

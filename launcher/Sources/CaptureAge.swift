@@ -11,7 +11,11 @@ enum CaptureAge {
     static func exe(bottle: String) -> URL {
         Install.home.appendingPathComponent("Library/Application Support/CrossOver/Bottles/\(bottle)/drive_c/users/crossover/AppData/Local/Programs/CaptureAge/CaptureAge.exe")
     }
+    /// Build switch (build-app.sh NO_CAPTUREAGE=1 → Info.plist TrebuchetCaptureAge = false): a release without the
+    /// CaptureAge button and its detection, e.g. while CaptureAge's replay view has no working graphics backend.
+    static var enabledInBuild: Bool { Bundle.main.object(forInfoDictionaryKey: "TrebuchetCaptureAge") as? Bool ?? true }
     static func installed(bottle: String?) -> Bool {
+        guard enabledInBuild else { return false }
         if ProcessInfo.processInfo.environment["TREBUCHET_DEMO_CAPTUREAGE"] == "1" { return true }
         guard let b = bottle else { return false }
         return FileManager.default.fileExists(atPath: exe(bottle: b).path)
@@ -28,6 +32,7 @@ enum CaptureAge {
     /// Trebuchet maps Wine's libraries from our CrossOver copy, one started elsewhere maps none from it.
     /// `window`: the main process already shows a window (CaptureAge's UI can take about a minute to appear).
     static func status() -> (status: Status, window: Bool) {
+        guard enabledInBuild else { return (.none, false) }
         if let d = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_CAPTUREAGE_STATE"] {
             return (d == "outside" ? .outside : d == "fixes" ? .withFixes : .none, true)
         }
