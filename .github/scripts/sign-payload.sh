@@ -20,6 +20,8 @@ done < $D/MANIFEST
 echo "payload matches its MANIFEST"
 # 1b. Release gate: no offline-diagnostic code in any shipped binary (Wine, the sidecar, DXMT, the app).
 zsh "${0:A:h}/audit-diagnostics.sh" "$B"
+# 1c. Release gate: every shipped Mach-O runs on supported macOS versions (ntdll as CrossOver's: 10.15, same imports).
+zsh "${0:A:h}/audit-minos.sh" "$D"   # $D: bin/ plus scripts/run-aoe2.sh (the text-fix gate)
 
 # 2. Sign: every Mach-O we ship, hardened runtime + secure timestamp; the app last (inner binary first).
 ts=(--timestamp); [[ $ID == - ]] && ts=()
