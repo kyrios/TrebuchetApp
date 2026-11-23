@@ -91,9 +91,12 @@ case "$backend" in
 esac
 
 # Start CaptureAge (+ its watchdog, which keeps this process alive until CaptureAge quits) with wine of $1.
+# CaptureAge always runs on DXVK: on DXMT its renderer fails (CreateRenderTarget: the D3D11 texture does not answer
+# IDXGISurface, E_NOINTERFACE) and its worker quits. Same CX_ENV as the game (MSync etc.), only the backend replaced.
+ca_env() { local e; e=$(print -r -- "$game_cxenv" | sed -E 's/(^| )(CX_GRAPHICS_BACKEND|WINEDXVK)=[^ ]*//g; s/^ +//'); print -r -- "CX_GRAPHICS_BACKEND=dxvk${e:+ $e}"; }
 start_captureage() {
   unset AOE2_FASTQPC AOE2_FAST_CARET AOE2_FAST_SETCURSOR AOE2_FAST_KMTMEM   # F59/T4 are not gated to the game exe
-  CX_ENV="$game_cxenv" CA_CROSSOVER="$1" CA_EXE="$ca_exe" CA_URL="$ca_url" CA_RESTART=$ca_restart CA_RUNTIME="$2" \
+  CX_ENV="$(ca_env)" CA_CROSSOVER="$1" CA_EXE="$ca_exe" CA_URL="$ca_url" CA_RESTART=$ca_restart CA_RUNTIME="$2" \
     CA_TREBUCHET=1 CA_NO_DIALOG=1 CA_LOG="$PREFIX/logs/captureage-$stamp.log" exec "$PREFIX/run-captureage.sh"
 }
 run_stock() {
@@ -363,7 +366,7 @@ wine_pid=$!
 # (Not in the wait loop below: that loop only covers the first 90 s.)
 if [[ -f "$ca_unix" && -z "${AOE2_NO_CAWATCH:-}" ]]; then
   ( unset AOE2_FASTQPC AOE2_FAST_CARET AOE2_FAST_SETCURSOR AOE2_FAST_KMTMEM
-    CX_ENV="$game_cxenv" CA_WATCH_ONLY=1 CA_WATCH_PID=$wine_pid CA_CROSSOVER="$copy_app" CA_EXE="$ca_exe" CA_TREBUCHET=1 \
+    CX_ENV="$(ca_env)" CA_WATCH_ONLY=1 CA_WATCH_PID=$wine_pid CA_CROSSOVER="$copy_app" CA_EXE="$ca_exe" CA_TREBUCHET=1 \
       CA_NO_DIALOG=1 CA_REPORT="$PREFIX/logs/reports-$stamp.log" CA_LOG="$PREFIX/logs/captureage-$stamp.log" \
       nohup "$PREFIX/run-captureage.sh" >/dev/null 2>&1 ) &!
 fi
