@@ -38,7 +38,7 @@ fi
 payload_id() {
   { [[ -n "${PREBUILT:-}" ]] && (cd "$PREBUILT" && find . -type f ! -name '.*' ! -path './*.app/*' | LC_ALL=C sort | while read -r f; do print "$f $(sha "$f")"; done)
     print "MANIFEST $(sha "$mf_in")"
-    for f in run-aoe2.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf install.sh; do [[ -f "$here/$f" ]] && print "$f $(sha "$here/$f")"; done
+    for f in run-aoe2.sh find-game.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf install.sh; do [[ -f "$here/$f" ]] && print "$f $(sha "$here/$f")"; done
   } | shasum -a 256 | cut -d' ' -f1
 }
 # --payload-id: print the id and stop. The app runs this at each Launch and compares it with PREFIX/.prepared.
@@ -111,9 +111,10 @@ cp "$here/run-aoe2.sh" "$PREFIX/run-aoe2.sh"
 # launcher's gate notices a changed file. A future signed update channel replaces this line's check.
 cp "$here/mk_reorder.py" "$PREFIX/mk_reorder.py"
 cp "$here/mk_rules.py" "$PREFIX/mk_rules.py"
+cp "$here/find-game.sh" "$PREFIX/find-game.sh"
 cp "$here/rules.manifest" "$PREFIX/rules.manifest"
 print "ours prefix:rules.manifest $(sha "$PREFIX/rules.manifest")" >> "$PREFIX/MANIFEST"
-for f in mk_reorder.py mk_rules.py; do print "ours prefix:$f $(sha "$PREFIX/$f")" >> "$PREFIX/MANIFEST"; done
+for f in mk_reorder.py mk_rules.py find-game.sh; do print "ours prefix:$f $(sha "$PREFIX/$f")" >> "$PREFIX/MANIFEST"; done
 cp "$here/defaults.conf" "$PREFIX/defaults.conf"
 cp "$here/names.conf" "$PREFIX/names.conf"
 # Which fixes are compiled into the shipped binaries (the app shows their switches only then)
@@ -154,7 +155,7 @@ else
   bottle=${AOE2_BOTTLE:-}
   if [[ -z "$bottle" ]]; then
     for b in "$bottles"/*(N/); do
-      if [[ -f "$b/drive_c/Program Files (x86)/Steam/steamapps/common/AoE2DE/AoE2DE_s.exe" ]]; then bottle=${b:t}; break; fi
+      if zsh "$here/find-game.sh" "$b" >/dev/null 2>&1; then bottle=${b:t}; break; fi
     done
   fi
   if [[ -z "$bottle" ]]; then

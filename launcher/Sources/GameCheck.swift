@@ -5,8 +5,9 @@ import Foundation
 enum GameCheck {
     enum Status: Equatable { case none, withFixes, outside }
 
-    /// Wine shows Windows processes with their Windows path as argv[0]; anchored so nothing that merely mentions the game matches.
-    static let gamePattern = #"^C:.Program Files .x86..Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe( |$)"#
+    /// Wine shows Windows processes with their Windows path as argv[0]; anchored so nothing that merely mentions the game
+    /// matches. Any drive letter: the game may sit in another Steam library (2.1.4).
+    static let gamePattern = #"^[A-Za-z]:.*.AoE2DE_s\.exe( |$)"#
 
     /// Wine runs each process from a temporary copy of its loader, so the executable path says nothing; the files it maps
     /// do: a game started by Trebuchet maps Wine's libraries from our CrossOver copy, one started elsewhere maps none from it.
