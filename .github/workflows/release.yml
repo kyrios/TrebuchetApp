@@ -1,29 +1,34 @@
-# Signs, notarizes and packs a release. Nothing is built here: the payload is the unsigned tarball the
-# maintainer built with mk-release and tested in the game (full replays, no desync), attached to the DRAFT
-# release of the tag as aoe2-mac-softfault-<tag>-unsigned.tar.gz. Its SHA-256 is committed in
-# release/<tag>.payload.sha256, so the bytes that get signed are exactly the tested ones.
-# Result: aoe2-mac-softfault-<tag>.tar.gz + SHA256SUMS on the same draft release. Publishing the draft
-# (after a local check of the notarized app and one real game start) is a separate, manual step.
+# Signs, notarizes and packs a release as Trebuchet-<version>.dmg (2.1+). Nothing is built here: the payload is the unsigned
+# app the maintainer built (build-app.sh with PAYLOAD=…) and tested in the game (full replays, no desync), attached to the
+# DRAFT release of the tag as Trebuchet-<tag>-unsigned.zip (ditto). Its SHA-256 is committed in release/<tag>.payload.sha256,
+# so the bytes that get signed are exactly the tested ones.
+# Result on the same draft: Trebuchet-<version>.dmg, SHA256SUMS and (for apps with Sparkle) appcast-item.xml.
+# Publishing the draft is a separate, manual step; appcast.yml then adds the item to the update feed on GitHub Pages.
 #
 # Manual start only (workflow_dispatch): publishing a release creates its tag, and a tag trigger would then
-# sign again with new timestamps, which would change the tarball's SHA-256 that scripts/get.sh pins.
+# sign again with new timestamps, which would change the DMG's SHA-256 that scripts/get.sh pins.
 #
-# Secrets (set by the maintainer): DEVELOPER_ID_P12_BASE64 (the Developer ID Application identity as a
-# .p12, base64), DEVELOPER_ID_P12_PASSWORD (its export password; may be unset for a password-less .p12), NOTARY_API_KEY_P8 (App Store Connect API key, the .p8 text or its base64),
-# NOTARY_API_KEY_ID, NOTARY_API_ISSUER_ID.
-# Each job holds only what it needs: the signing job has the keys but read-only access to the repository;
-# the jobs that read and write the draft release see no key. Actions are pinned by commit.
+# Secrets (set by the maintainer): DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD (may be unset for a password-less
+# .p12), NOTARY_API_KEY_P8 (.p8 text or base64), NOTARY_API_KEY_ID, NOTARY_API_ISSUER_ID, SPARKLE_ED_PRIVATE_KEY
+# (Sparkle's EdDSA key, from `generate_keys -x`).
+# Each job holds only what it needs: the signing job has the keys but read-only access to the repository, and the
+# Sparkle key is visible only to the one step that signs the update; the jobs that read and write the draft see no key.
+# Actions are pinned by commit, Python tools by hash, Sparkle's tools by archive hash.
 name: release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (its draft release carries the unsigned payload), e.g. v2.0"
+        description: "Release tag (its draft release carries the unsigned app), e.g. v2.1"
         required: true
 
 permissions:
   contents: read
+
+env:
+  SPARKLE_VERSION: "2.10.1"
+  SPARKLE_SHA256: "1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27"
 
 jobs:
   fetch:
@@ -32,7 +37,7 @@ jobs:
       contents: write   # a draft release is visible only with write access
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Download the tested payload and check its SHA-256
+      - name: Download the tested app and check its SHA-256
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
@@ -40,8 +45,8 @@ jobs:
         run: |
           want=$(cut -d' ' -f1 "release/$TAG.payload.sha256")
           mkdir payload
-          gh release download "$TAG" -R "$REPO" -p "aoe2-mac-softfault-$TAG-unsigned.tar.gz" -D payload
-          got=$(sha256sum "payload/aoe2-mac-softfault-$TAG-unsigned.tar.gz" | cut -d' ' -f1)
+          gh release download "$TAG" -R "$REPO" -p "Trebuchet-$TAG-unsigned.zip" -D payload
+          got=$(sha256sum "payload/Trebuchet-$TAG-unsigned.zip" | cut -d' ' -f1)
           echo "want $want"; echo "got  $got"
           test "$got" = "$want"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -52,17 +57,21 @@ jobs:
   sign:
     needs: fetch
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: payload
           path: payload
-      - name: Unpack
-        env:
-          TAG: ${{ inputs.tag }}
-        run: mkdir work && tar -xzf "payload/aoe2-mac-softfault-$TAG-unsigned.tar.gz" -C work
+
+      - name: Tools (dmgbuild pinned by hash, Sparkle's sign_update by archive hash)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --require-hashes --no-deps -r .github/dmg/requirements.txt
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          echo "$SPARKLE_SHA256  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c
+          mkdir "$RUNNER_TEMP/sparkle" && tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle" ./bin/sign_update
 
       - name: Signing identity and notary key
         env:
@@ -77,7 +86,6 @@ jobs:
           security set-keychain-settings -lut 3600 "$kc"
           security unlock-keychain -p "$pw" "$kc"
           print -r -- "$P12" | base64 -D > "$RUNNER_TEMP/id.p12"
-          # DEVELOPER_ID_P12_PASSWORD is the .p12's export password (empty for a password-less .p12).
           security import "$RUNNER_TEMP/id.p12" -k "$kc" -P "${P12_PASSWORD:-}" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/id.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc" >/dev/null
@@ -87,14 +95,15 @@ jobs:
           else print -r -- "$P8" | base64 -D > "$RUNNER_TEMP/notary.p8"; fi
         shell: zsh {0}
 
-      - name: Sign, notarize, staple, pack
+      - name: Sign, notarize, staple, pack the DMG
         env:
           TAG: ${{ inputs.tag }}
           SIGN_IDENTITY: Developer ID Application
           NOTARY_KEY: ${{ runner.temp }}/notary.p8
           NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER_ID }}
-        run: zsh .github/scripts/sign-payload.sh work dist
+          DMGBUILD: ${{ runner.temp }}/venv/bin/dmgbuild
+        run: zsh .github/scripts/sign-app.sh "payload/Trebuchet-$TAG-unsigned.zip" dist
 
       - name: Remove the signing keychain
         if: always()
@@ -102,16 +111,35 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/notary.p8"
 
-      - name: Verify the signed app
+      - name: Sign the update for Sparkle (EdDSA)
+        if: hashFiles('dist/appcast-item.xml') != ''
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          TAG: ${{ inputs.tag }}
         run: |
-          app=$(ls -d work/aoe2-mac-softfault/bin/*.app)
-          codesign --verify --strict --deep --verbose=2 "$app"
-          spctl -a -vv "$app"
-          xcrun stapler validate "$app"
-          codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'TeamIdentifier|Runtime|Timestamp'
-          for f in work/aoe2-mac-softfault/bin/x87sidecar work/aoe2-mac-softfault/bin/ntdll.so work/aoe2-mac-softfault/bin/dxmt/x86_64-unix/winemetal.so; do
-            codesign --verify --strict "$f"; codesign -dv "$f" 2>&1 | grep -E 'TeamIdentifier|flags'
+          [[ -n "$SPARKLE_ED_PRIVATE_KEY" ]] || { echo "SPARKLE_ED_PRIVATE_KEY missing"; exit 1; }
+          dmg=$(ls dist/Trebuchet-*.dmg)
+          sig=$(print -r -- "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - "$dmg")
+          unset SPARKLE_ED_PRIVATE_KEY
+          [[ "$sig" == *'sparkle:edSignature="'*'length="'* ]] || { echo "sign_update gave no signature"; exit 1; }
+          sed -i '' "s|__SPARKLE_SIGNATURE__|$sig|" dist/appcast-item.xml
+          cat dist/appcast-item.xml
+        shell: zsh {0}
+
+      - name: Verify the DMG and the app inside it
+        run: |
+          dmg=$(ls dist/Trebuchet-*.dmg)
+          spctl -a -vv -t open --context context:primary-signature "$dmg"
+          xcrun stapler validate "$dmg"
+          mnt=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          codesign --verify --strict --deep --verbose=2 "$mnt/Trebuchet.app"
+          spctl -a -vv "$mnt/Trebuchet.app"
+          xcrun stapler validate "$mnt/Trebuchet.app"
+          codesign -dv --verbose=2 "$mnt/Trebuchet.app" 2>&1 | grep -E 'TeamIdentifier|Runtime|Timestamp'
+          for f in x87sidecar ntdll.so dxmt/x86_64-unix/winemetal.so; do
+            codesign --verify --strict "$mnt/Trebuchet.app/Contents/Resources/Trebuchet/bin/$f"
           done
+          hdiutil detach "$mnt"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -137,5 +165,5 @@ jobs:
           cd dist
           sha256sum -c SHA256SUMS
           test "$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft)" = true || { echo "release $TAG is not a draft"; exit 1; }
-          gh release upload "$TAG" "aoe2-mac-softfault-$TAG.tar.gz" SHA256SUMS -R "$REPO" --clobber
+          gh release upload "$TAG" Trebuchet-*.dmg SHA256SUMS $(ls appcast-item.xml 2>/dev/null) -R "$REPO" --clobber
           cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"

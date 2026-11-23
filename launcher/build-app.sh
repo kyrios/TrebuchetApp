@@ -51,12 +51,6 @@ EOF
 bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${bid:-io.github.kyrios.trebuchet}
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
-# Inner Mach-O files keep their tested bytes: sign ad-hoc only if unsigned (the release signs them with the
-# Developer ID first and re-hashes MANIFEST, then the app).
-if [[ -d "$app/Contents/Resources/Trebuchet/bin" ]]; then
-  for f in "$app/Contents/Resources/Trebuchet/bin/"{x87sidecar,ntdll.so,win32u.so,dxmt/x86_64-unix/winemetal.so}(N); do
-    codesign -v "$f" 2>/dev/null || codesign -s - -f "$f"
-  done
-fi
+# The payload files keep their exact tested bytes (MANIFEST hashes); only the release signs them (sign-app.sh).
 codesign -s - -f "$app"
 echo "built: $app"

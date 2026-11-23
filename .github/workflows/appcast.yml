@@ -1,0 +1,78 @@
+# Sparkle update feed: when a release is published, its signed appcast-item.xml (made by release.yml) is added to
+# appcast.xml on the gh-pages branch, served as https://kyrios.github.io/TrebuchetApp/appcast.xml (the app's SUFeedURL).
+# Drafts never reach the feed. A manual start re-adds one tag (e.g. after a failed run).
+name: appcast
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag whose appcast-item.xml goes into the feed, e.g. v2.1"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appcast
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # push to gh-pages
+    steps:
+      - name: Get the release's appcast item
+        id: item
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          test "$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft)" = false || { echo "$TAG is not published"; exit 1; }
+          if ! gh release download "$TAG" -R "$REPO" -p appcast-item.xml -D "$RUNNER_TEMP"; then
+            echo "no appcast-item.xml on $TAG (a release without Sparkle): nothing to do"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          grep -q 'sparkle:edSignature="' "$RUNNER_TEMP/appcast-item.xml" || { echo "the item is not signed"; exit 1; }
+          grep -q '__SPARKLE_SIGNATURE__' "$RUNNER_TEMP/appcast-item.xml" && { echo "placeholder left in the item"; exit 1; }
+          echo "skip=0" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.item.outputs.skip == '0'
+        with:
+          ref: gh-pages
+      - name: Add the item to appcast.xml (newest first, once per tag)
+        if: steps.item.outputs.skip == '0'
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          if [ ! -f appcast.xml ]; then
+            cat > appcast.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Trebuchet</title>
+              <link>https://kyrios.github.io/TrebuchetApp/appcast.xml</link>
+              <language>en</language>
+            </channel>
+          </rss>
+          EOF
+          fi
+          if grep -q "releases/tag/$TAG<" appcast.xml; then echo "$TAG is already in the feed"; exit 0; fi
+          python3 - "$RUNNER_TEMP/appcast-item.xml" <<'EOF'
+          import sys, xml.dom.minidom as m
+          item = open(sys.argv[1]).read()
+          feed = open("appcast.xml").read()
+          i = feed.index("<language>en</language>") + len("<language>en</language>")
+          out = feed[:i] + "\n" + item.rstrip() + feed[i:]
+          m.parseString(out)            # must stay well-formed
+          open("appcast.xml", "w").write(out)
+          EOF
+          touch .nojekyll
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml .nojekyll
+          git commit -m "appcast: $TAG"
+          git push origin gh-pages
