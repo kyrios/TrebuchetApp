@@ -30,7 +30,7 @@ tar -xzf "$tmp/$ASSET" -C "$tmp"
 PREBUILT="$tmp/aoe2-mac-softfault/bin" CX_APP="$CX_APP" zsh "$tmp/aoe2-mac-softfault/scripts/install.sh"
 cat <<MSG
 
-Done. Start "AoE2 DE (Part A)" with Spotlight. It starts Steam first if needed and waits for sign-in.
-  Speed-up off for one start:  AOE2_NO_REORDER=1 "\$HOME/Library/Application Support/aoe2-mac-softfault/run-aoe2.sh" soft
-  Uninstall:  rm -rf "\$HOME/Library/Application Support/aoe2-mac-softfault" "\$HOME/Applications/AoE2 DE (Part A).app"
+Done. Start "Trebuchet" with Spotlight and press Launch. It starts Steam first if needed and waits for sign-in.
+  Switch single fixes on or off:  Trebuchet > Settings
+  Uninstall:  rm -rf "\$HOME/Library/Application Support/aoe2-mac-softfault" "\$HOME/Applications/Trebuchet.app"
 MSG
