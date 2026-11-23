@@ -180,6 +180,7 @@ final class Runner: ObservableObject {
             else if l.hasPrefix("Steam is in offline mode") { state = .steamOffline(l) }
             else if l.hasPrefix("AoE2 is already running") { state = .alreadyRunning }
             else if l.hasPrefix("The game runs without the fixes: closing it") { state = .launching(l) }
+            else if l.hasPrefix("captureage: the game ended before CaptureAge started") { state = .failed(Names.text("UI_CA_GAME_ENDED", "The game ended before CaptureAge started. Press Launch CaptureAge again.")) }
             else if l.hasPrefix("CaptureAge not used:") { state = .fallback(String(l.dropFirst("CaptureAge not used:".count)).trimmingCharacters(in: .whitespaces)) }
             else if l.hasPrefix("CaptureAge is not installed") { state = .failed(l) }
             else if l.hasPrefix("mode captureage") {
