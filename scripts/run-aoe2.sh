@@ -58,6 +58,10 @@ bundle_version() { [[ -f "$1/Contents/Info.plist" ]] && /usr/libexec/PlistBuddy 
 # game commands below, so the bottle and Steam keep their own backend.
 backend=${AOE2_BACKEND:-dxmt}
 game_cxenv=${CX_ENV:-}
+# Every start skips the intro video (the game's own SKIPINTRO option). Under CrossOver the intro never plays: it fails at
+# once, or the game hangs on "Opening video..." with a black window. Added to the player's own AOE2_ARGS, never replacing
+# them, never twice.
+if [[ " ${AOE2_ARGS:-} " != *" SKIPINTRO "* ]]; then AOE2_ARGS="${AOE2_ARGS:+$AOE2_ARGS }SKIPINTRO"; fi
 # The game is started directly, not through Steam's Play button. Steam sets these two for every game it launches; with
 # them Steamworks treats this start as Steam's and does not ask Steam to start a second copy (it does that when the game
 # folder has no steam_appid.txt, which is the normal case). Only the game gets them, never Steam or CaptureAge.
