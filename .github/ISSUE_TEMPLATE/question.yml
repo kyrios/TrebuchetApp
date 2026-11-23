@@ -1,0 +1,10 @@
+name: Question
+description: How do I…, does it work with…
+labels: [question]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
