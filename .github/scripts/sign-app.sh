@@ -40,6 +40,8 @@ done < $T/MANIFEST
 echo "payload matches its MANIFEST"
 # 1b. Release gate: no offline-diagnostic code in any shipped binary (the payload, the app, Sparkle).
 zsh "$here/audit-diagnostics.sh" "$A"
+# 1c. Release gate: every shipped Mach-O runs on supported macOS versions (ntdll as CrossOver's: 10.15, same imports).
+zsh "$here/audit-minos.sh" "$A"
 
 # 2. Inner code first: our Mach-O files in the payload, then Sparkle (if embedded), then the app.
 for f in $B/x87sidecar $B/ntdll.so $B/win32u.so $B/dxmt/x86_64-unix/winemetal.so; do [[ -f $f ]] && sign "$f"; done

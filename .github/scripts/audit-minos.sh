@@ -1,0 +1,30 @@
+#!/bin/zsh
+# Release gate: everything we ship runs on the macOS versions Trebuchet supports (v2.1.1 shipped an ntdll.so and a
+# winemetal.so built for macOS 27.2 only; on older macOS the game could not start: "Symbol not found: _pipe2").
+#   audit-minos.sh <folder>   (a payload bin/, an unpacked release, or an app bundle)
+#  1. every Mach-O: minimum macOS (LC_BUILD_VERSION minos, or LC_VERSION_MIN_MACOSX) <= MAX_MINOS (default 14.0);
+#  2. ntdll.so: minimum macOS <= 10.15, as CrossOver 26.3's own ntdll.so;
+#  3. ntdll.so: every undefined symbol is in .github/audit/ntdll-imports-crossover-26.3.txt (CrossOver 26.3's own ntdll
+#     imports plus the ones our patch needs and that exist on 10.15), so no newer libSystem call slips in.
+# Any hit fails the release. Exit 0 = clean.
+set -euo pipefail
+root=${1:?folder}; here=${0:A:h}
+MAX_MINOS=${MAX_MINOS:-14.0}; NTDLL_MINOS=10.15
+allowed=$here/../audit/ntdll-imports-crossover-26.3.txt
+le() { [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]; }   # $1 <= $2
+minos() { otool -l "$1" 2>/dev/null | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print $2; exit} /LC_VERSION_MIN_MACOSX/{v=1} v&&/version/{print $2; exit}'; }
+fail=0; n=0
+while IFS= read -r -d '' f; do
+  file -b "$f" | grep -q Mach-O || continue
+  n=$((n+1)); m=$(minos "$f"); rel=${f#$root/}
+  [[ -n $m ]] || { print "FAIL $rel: no minimum macOS version found"; fail=1; continue; }
+  le "$m" "$MAX_MINOS" || { print "FAIL $rel: built for macOS $m (must be <= $MAX_MINOS)"; fail=1; }
+  if [[ ${f:t} == ntdll.so ]]; then
+    le "$m" "$NTDLL_MINOS" || { print "FAIL $rel: ntdll.so built for macOS $m (must be <= $NTDLL_MINOS, as CrossOver's)"; fail=1; }
+    extra=$(nm -u "$f" | sort -u | comm -23 - <(sort -u "$allowed") | tr '\n' ' ')
+    [[ -z ${extra// /} ]] || { print "FAIL $rel: imports symbols CrossOver 26.3's ntdll does not: $extra"; fail=1; }
+  fi
+done < <(find "$root" -type f -print0)
+(( n > 0 )) || { print "FAIL: no Mach-O file under $root"; exit 1; }
+(( fail )) && exit 1
+print "audit-minos: clean ($n Mach-O files, <= macOS $MAX_MINOS; ntdll <= $NTDLL_MINOS with CrossOver's imports)"
