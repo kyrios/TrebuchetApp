@@ -1,3 +1,4 @@
 work/
 logs/
 .DS_Store
+launcher/.sparkle-*/

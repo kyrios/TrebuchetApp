@@ -9,6 +9,12 @@
 # ($PREBUILT = directory with ntdll.so, ntdll.dll, x87sidecar; used by get.sh).
 # Both need a MANIFEST (release: next to bin/; source build: $WORK/MANIFEST, written by build.sh).
 # If CrossOver is not exactly the build the MANIFEST names, nothing is installed.
+#
+# The Trebuchet app runs this same script from inside its bundle (Contents/Resources/Trebuchet/scripts) with
+# PREBUILT=<bundle>/Contents/Resources/Trebuchet/bin, PREFIX=~/Library/Application Support/Trebuchet and NO_LAUNCHER=1:
+# then nothing is written outside PREFIX, and "step: ..." lines report progress to the app.
+# On success PREFIX/.prepared holds what the copy was made from (payload MANIFEST hash + CrossOver build);
+# the app re-runs this script when that no longer matches.
 set -euo pipefail
 here=${0:A:h}
 WORK=${WORK:-$PWD/work}
@@ -27,6 +33,16 @@ else
   so="$WORK/build/dlls/ntdll/ntdll.so" dll="$WORK/build/dlls/ntdll/x86_64-windows/ntdll.dll" sc="$WORK/sidecar/build/bin/x87sidecar"
   mf_in="${MANIFEST:-$WORK/MANIFEST}"
 fi
+# Payload id: every file this script installs from (prebuilt binaries + these scripts + MANIFEST), so any change
+# in a new app version triggers a fresh copy.
+payload_id() {
+  { [[ -n "${PREBUILT:-}" ]] && (cd "$PREBUILT" && find . -type f ! -name '.*' ! -path './*.app/*' | LC_ALL=C sort | while read -r f; do print "$f $(sha "$f")"; done)
+    print "MANIFEST $(sha "$mf_in")"
+    for f in run-aoe2.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf install.sh; do [[ -f "$here/$f" ]] && print "$f $(sha "$here/$f")"; done
+  } | shasum -a 256 | cut -d' ' -f1
+}
+# --payload-id: print the id and stop. The app runs this at each Launch and compares it with PREFIX/.prepared.
+[[ "${1:-}" == --payload-id ]] && { payload_id; exit 0; }
 
 # --- gate: refuse unless CrossOver is exactly the build this release was made for ------
 # MANIFEST lines: "built_for_cx <CFBundleVersion>", "stock <path under SharedSupport/CrossOver> <sha256>",
@@ -50,10 +66,15 @@ while read -r k p h; do
   [[ -n "$f" && "$(sha "$f")" == "$h" ]] || die "release file $p is damaged or not the one this MANIFEST lists. Nothing installed."
 done < "$mf_in"
 
+step() { print "step: $1"; }
+step "Preparing Trebuchet for CrossOver ${have_cx}"
 mkdir -p "$PREFIX"
+rm -f "$PREFIX/.prepared"
 app="$PREFIX/SoftFault-CrossOver.app"
 rm -rf "$app"
+step "Copying CrossOver (APFS clone)"
 cp -cR "$CX_APP" "$app"
+step "Adding Trebuchet's files"
 lib="$app/Contents/SharedSupport/CrossOver/lib/wine"
 cp "$so" "$lib/x86_64-unix/ntdll.so"
 cp "$dll" "$lib/x86_64-windows/ntdll.dll"
@@ -95,6 +116,9 @@ cp "$here/names.conf" "$PREFIX/names.conf"
 find "$PREFIX" -maxdepth 1 -name ".has-*" -delete; [[ -n "${PREBUILT:-}" && -f "$PREBUILT/FEATURES" ]] && for f in $(<"$PREBUILT/FEATURES"); do : > "$PREFIX/.has-${f:l}"; done
 print "ours prefix:defaults.conf $(sha "$PREFIX/defaults.conf")" >> "$PREFIX/MANIFEST"
 chmod +x "$PREFIX/run-aoe2.sh"
+print "payload $(payload_id)\ncrossover $have_cx" > "$PREFIX/.prepared"
+step "Ready"
+if [[ -n "${NO_LAUNCHER:-}" ]]; then exit 0; fi
 
 # Launcher app: the prebuilt SwiftUI app from the release (one launcher, Launch + Settings), else a small script app.
 app_name=$(sed -n 's/^APP_NAME=//p' "$here/names.conf" 2>/dev/null | head -1); app_name=${app_name:-AoE2 DE (Part A)}
