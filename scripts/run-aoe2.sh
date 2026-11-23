@@ -254,9 +254,19 @@ export WINELOADER="$R/bin/wineloader"
 export AOELAB_SIDECAR_PATH="$PREFIX/x87sidecar"
 export AOE2_SOFTFAULT=1
 # --- stutter fix F54a (on unless AOE2_NO_F54A=1): Rosetta's clean-up in steps of at most 2 ms. ---
-# The sidecar checks the exact Rosetta build itself and keeps the stock clean-up on any other build.
+# Fail-closed (2.1.3): only on a Rosetta runtime it was tested on (sha256 list "rosetta=" in rules.manifest; a rule pack
+# can add builds). The sidecar alone would also install on an untested build when its locator finds the sites (2.1.2 did
+# so on macOS 26.6.2, where the game crashed at start); here any other build keeps Rosetta's stock clean-up.
 f54a=off
-if (( want_f54a )); then export AOE_RECLAIM_BUDGET_US=2000 AOE_RECLAIM_LOG="$PREFIX/logs/reclaim-$stamp.log"; f54a=on; fi
+if (( want_f54a )); then
+  rt_sha=$(/usr/bin/shasum -a 256 /usr/libexec/rosetta/runtime 2>/dev/null | cut -d' ' -f1); f54a_tested=$(rule_field f54a rosetta)
+  if [[ -n "$rt_sha" && -n "$f54a_tested" && ",$f54a_tested," == *",$rt_sha,"* ]]; then
+    export AOE_RECLAIM_BUDGET_US=2000 AOE_RECLAIM_LOG="$PREFIX/logs/reclaim-$stamp.log"; f54a=on
+  else
+    [[ -n "$rt_sha" ]] && rt_id="${rt_sha:0:16}…" || rt_id=unreadable
+    rule_off f54a "not tested on this Rosetta build (runtime $rt_id)"
+  fi
+fi
 # --- faster clock F59 (opt-in: AOE2_FASTQPC=1) ---
 fastqpc=off
 (( want_fastqpc )) && [[ -e "$PREFIX/.has-fastqpc" ]] && { export AOE2_FASTQPC=1; fastqpc=on; }
