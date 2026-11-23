@@ -31,12 +31,23 @@ enum CaptureAge {
         if let d = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_CAPTUREAGE_STATE"] {
             return (d == "outside" ? .outside : d == "fixes" ? .withFixes : .none, true)
         }
-        let mains = matchingPIDs().filter { !(commandLine($0) ?? "").contains(" --type=") }
+        let mains = matchingPIDs(pattern).filter { !(commandLine($0) ?? "").contains(" --type=") }
         guard !mains.isEmpty else { return (.none, false) }
         let copy = Install.prefix.appendingPathComponent("SoftFault-CrossOver.app").path + "/"
         let window = mains.contains { hasWindow($0) }
         for pid in mains where !mapsFiles(pid, under: copy) { return (.outside, window) }
         return (.withFixes, window)
+    }
+
+    /// The same check for the game: an AoE2DE_s.exe that maps nothing from our copy was started elsewhere (Steam's Play
+    /// button, or CaptureAge 1.26, which starts games through steam://, i.e. in Steam's stock CrossOver).
+    static let gamePattern = #"^C:.Program Files .x86..Steam.steamapps.common.AoE2DE.AoE2DE_s\.exe( |$)"#
+    static func gameStatus() -> Status {
+        if let d = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_GAME_STATE"] { return d == "outside" ? .outside : d == "fixes" ? .withFixes : .none }
+        let pids = matchingPIDs(gamePattern)
+        guard !pids.isEmpty else { return .none }
+        let copy = Install.prefix.appendingPathComponent("SoftFault-CrossOver.app").path + "/"
+        return pids.allSatisfy { mapsFiles($0, under: copy) } ? .withFixes : .outside
     }
 
     private static func run(_ tool: String, _ args: [String]) -> String {
@@ -61,7 +72,7 @@ enum CaptureAge {
         return list.contains { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
     }
 
-    private static func matchingPIDs() -> [pid_t] {
+    private static func matchingPIDs(_ pattern: String) -> [pid_t] {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         p.arguments = ["-f", pattern]

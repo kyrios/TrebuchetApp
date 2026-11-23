@@ -20,6 +20,7 @@ enum LaunchState: Equatable {
     case notInApplications          // opened from the disk image (or translocated): move it first
 
     var isCaptureAge: Bool { if case .captureAgeRunning = self { return true }; return false }
+    var isGame: Bool { if case .running = self { return true }; return false }
     /// Shows a spinner.
     var isBusy: Bool {
         switch self {
@@ -43,12 +44,15 @@ final class Runner: ObservableObject {
     /// CaptureAge seen in the process list (read-only, refreshed every 5 s while the app is open).
     @Published var captureAge: CaptureAge.Status = .none
     @Published var captureAgeWindow = false
+    @Published var game: CaptureAge.Status = .none
     private var caTimer: Timer?
 
     func refreshCaptureAge() {
         Task.detached {
             let s = CaptureAge.status()
+            let g = CaptureAge.gameStatus()
             await MainActor.run {
+                if self.game != g { self.game = g }
                 if self.captureAge != s.status { self.captureAge = s.status }
                 if self.captureAgeWindow != s.window { self.captureAgeWindow = s.window }
             }

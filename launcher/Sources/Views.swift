@@ -77,13 +77,22 @@ struct MainView: View {
                 .controlSize(.large)
                 .disabled(runner.state.blocks || runner.captureAge != .none)
                 .padding(.top, Space.s)
-                .accessibilityHint(Text("Starts CaptureAge with Trebuchet's fixes. Games it opens get the fixes too."))
+                .accessibilityHint(Text("Starts CaptureAge in Trebuchet's runtime. Start the game with Launch first so it has the fixes."))
+            }
+            if runner.game == .outside, !runner.state.isGame {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(Names.text("UI_GAME_OUTSIDE", "Age of Empires II is running without Trebuchet's fixes (started through Steam or CaptureAge). Quit it and press Launch to play with the fixes."))
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, Space.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if runner.captureAge == .outside, !runner.state.isCaptureAge {
                 HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(Names.text("UI_CA_OUTSIDE", "CaptureAge was started outside Trebuchet. Games it opens won't have the fixes."))
+                        Text(Names.text("UI_CA_OUTSIDE", "CaptureAge was started outside Trebuchet."))
                             .font(.callout).fixedSize(horizontal: false, vertical: true)
                         Button(Names.text("UI_CA_RESTART", "Restart CaptureAge with fixes")) { runner.restartCaptureAge(fixes) }
                             .buttonStyle(.link).font(.callout)
@@ -212,8 +221,8 @@ struct StatusCard: View {
         case .running(let plain): return plain ? Names.text("UI_RUNNING_PLAIN", "Without fixes, like Steam's Play button.") : summary
         case .captureAgeRunning(let plain):
             if !captureAgeWindow { return Names.text("UI_CA_STARTING", "Starting CaptureAge… its window can take about a minute to appear.") }
-            return plain ? Names.text("UI_CA_RUNNING_PLAIN", "Without fixes. Games it opens run like Steam's Play button.")
-                         : Names.text("UI_CA_RUNNING_DETAIL", "Games it opens get Trebuchet's fixes.")
+            return plain ? Names.text("UI_CA_RUNNING_PLAIN", "Without fixes, like CrossOver's CaptureAge.")
+                         : Names.text("UI_CA_RUNNING_DETAIL", "A game CaptureAge starts itself goes through Steam and runs without the fixes. Start the game with Launch first; CaptureAge then shows it with the fixes.")
         case .fixOff(let l), .steamOffline(let l): return l
         case .fallback(let l): return l.prefix(1).uppercased() + l.dropFirst()
         case .alreadyRunning: return Names.text("UI_ALREADY_DETAIL", "Switch to the game window to play.")
