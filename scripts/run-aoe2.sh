@@ -79,6 +79,10 @@ bundle_version() { [[ -f "$1/Contents/Info.plist" ]] && /usr/libexec/PlistBuddy 
 # game commands below, so the bottle and Steam keep their own backend.
 backend=${AOE2_BACKEND:-dxmt}
 game_cxenv=${CX_ENV:-}
+# The game is started directly, not through Steam's Play button. Steam sets these two for every game it launches; with
+# them Steamworks treats this start as Steam's and does not ask Steam to start a second copy (it does that when the game
+# folder has no steam_appid.txt, which is the normal case). Only the game gets them, never Steam or CaptureAge.
+steam_ids="SteamAppId=813780 SteamGameId=813780"
 case "$backend" in
   bottle) ;;
   wined3d) game_cxenv="CX_GRAPHICS_BACKEND=wined3d WINEDXVK=0${game_cxenv:+ $game_cxenv}" ;;
@@ -101,7 +105,7 @@ run_stock() {
   local log="$PREFIX/logs/run-stock-$stamp.log"
   echo "mode stock, backend $backend, log: $log"
   [[ -n "${AOE2_DRYRUN:-}" ]] && return 0
-  CX_ENV="$game_cxenv" "$stock_app/Contents/SharedSupport/CrossOver/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1
+  CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$stock_app/Contents/SharedSupport/CrossOver/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1
 }
 
 fallback() {
@@ -352,7 +356,7 @@ fi
 # the game here first, the Trebuchet way; CaptureAge then attaches to it (port 4341) and starts none of its own.
 (( ca_mode && ca_game_running )) && start_captureage "$copy_app" "$copy_app/"
 (( ca_mode )) && echo "captureage: starting the game with the fixes first" >> "$PREFIX/logs/reports-$stamp.log"
-CX_ENV="$game_cxenv" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
+CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
 wine_pid=$!
 # The game's "Spectate with CA" button starts CaptureAge without --in-process-gpu (blank window under CrossOver).
 # A background watcher, tied to the game's pid, restarts such a CaptureAge with the flag and the same captureage:// URL.
