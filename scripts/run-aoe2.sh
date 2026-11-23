@@ -315,6 +315,10 @@ if [[ -d "$PREFIX/$dxmt_set" ]] && ! dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set"
     || fallback "could not switch the DXMT files."
   echo "dxmt: copy now uses $dxmt_set" >> "$PREFIX/logs/reports-$stamp.log"
 fi
+# Every start: clear the quarantine flag inside Trebuchet's own folder (idempotent, fast). A copy that 2.1 prepared from a
+# browser-downloaded CrossOver, or files copied out of a downloaded Trebuchet, would otherwise make Gatekeeper call the
+# copy "damaged". Only $PREFIX; never /Applications/CrossOver.app or the bottle. Apple's xattr by path.
+/usr/bin/xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true
 CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
 wine_pid=$!
 
