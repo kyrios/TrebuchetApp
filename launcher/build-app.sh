@@ -13,6 +13,7 @@ name=$(sed -n 's/^APP_NAME=//p' "$here/../scripts/names.conf" | head -1); name=$
 # TEST_BUILD=1: a local test app ("<name> <version> Test", own bundle id and support folder, no migration, no Sparkle).
 # The release signing refuses it (sign-app.sh checks TrebuchetTestBuild).
 [[ -n ${TEST_BUILD:-} ]] && name="$name ${VERSION:-2.1} Test"
+[[ -n ${SPARKLE_TEST_FEED:-} ]] && name="Trebuchet Update Test"
 app="$OUT/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -22,6 +23,9 @@ SPARKLE_VERSION=2.10.1
 SPARKLE_SHA256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
 pub=$(tr -d '[:space:]' < "$here/sparkle-public-key.txt" 2>/dev/null || true)
 [[ -n ${TEST_BUILD:-} ]] && pub=""
+# Local update test only: SPARKLE_TEST_FEED (file:// appcast) + SPARKLE_TEST_PUBKEY (a throwaway key, never the release key).
+# Such a build gets its own name and bundle id and the TrebuchetTestFeed marker; sign-app.sh refuses it.
+if [[ -n ${SPARKLE_TEST_FEED:-} ]]; then pub=${SPARKLE_TEST_PUBKEY:?SPARKLE_TEST_PUBKEY for a test feed}; fi
 sparkle=()
 if [[ -n $pub ]]; then
   cache=${SPARKLE_CACHE:-$here/.sparkle-$SPARKLE_VERSION}
@@ -72,6 +76,7 @@ cat > "$app/Contents/Info.plist" <<'EOF'
 EOF
 bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${bid:-io.github.kyrios.trebuchet}
 [[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
+[[ -n ${SPARKLE_TEST_FEED:-} ]] && bid="$bid.updatetest"
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
 if [[ -n ${TEST_BUILD:-} ]]; then
