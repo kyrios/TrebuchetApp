@@ -54,7 +54,7 @@ struct MainView: View {
 
             Button { runner.launch(fixes) } label: {
                 HStack(spacing: Space.s) {
-                    if case .launching = runner.state { ProgressView().controlSize(.small) }
+                    if runner.state.isBusy { ProgressView().controlSize(.small) }
                     else { Image(systemName: "play.fill") }
                     Text(launchTitle)
                 }
@@ -99,7 +99,7 @@ struct MainView: View {
 
     private var launchTitle: String {
         switch runner.state {
-        case .launching: return Names.text("UI_LAUNCHING", "Starting…")
+        case .launching, .preparing: return Names.text("UI_LAUNCHING", "Starting…")
         case .running: return Names.text("UI_RUNNING_BUTTON", "Running")
         default: return Names.text("UI_LAUNCH", "Launch")
         }
@@ -140,12 +140,13 @@ struct StatusCard: View {
     @ViewBuilder private var icon: some View {
         switch state {
         case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .launching: ProgressView().controlSize(.small).frame(height: 22)
+        case .launching, .preparing: ProgressView().controlSize(.small).frame(height: 22)
         case .running: Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet)
         case .fixOff, .fallback, .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .steamOffline: Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
         case .alreadyRunning: Image(systemName: "info.circle.fill").foregroundStyle(Color.trebuchet)
         case .noCrossOver, .notInstalled: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+        case .notInApplications: Image(systemName: "arrow.down.app.fill").foregroundStyle(Color.trebuchet)
         case .noBottle: Image(systemName: "questionmark.folder.fill").foregroundStyle(.orange)
         }
     }
@@ -161,6 +162,8 @@ struct StatusCard: View {
         switch state {
         case .ready: return Names.text("UI_READY", "Ready to launch")
         case .launching: return Names.text("UI_STARTING", "Starting…")
+        case .preparing: return Names.text("UI_PREPARING_TITLE", "Getting ready")
+        case .notInApplications: return Names.text("UI_MOVE_TITLE", "Move Trebuchet to Applications")
         case .running: return Names.text("UI_RUNNING", "Age of Empires II is running")
         case .fixOff: return Names.text("UI_FIXOFF", "One fix is off for this start")
         case .fallback: return Names.text("UI_FALLBACK", "Started without fixes")
@@ -176,14 +179,15 @@ struct StatusCard: View {
     private var detail: String {
         switch state {
         case .ready: return summary
-        case .launching(let l): return l
+        case .launching(let l), .preparing(let l): return l
+        case .notInApplications: return Names.text("UI_MOVE_DETAIL", "Drag Trebuchet from this window into your Applications folder, then open it from there.")
         case .running(let plain): return plain ? Names.text("UI_RUNNING_PLAIN", "Without fixes, like Steam's Play button.") : summary
         case .fixOff(let l), .steamOffline(let l): return l
         case .fallback(let l): return l.prefix(1).uppercased() + l.dropFirst()
         case .alreadyRunning: return Names.text("UI_ALREADY_DETAIL", "Switch to the game window to play.")
         case .failed(let l): return l.isEmpty ? Names.text("UI_FAILED_DETAIL", "The log has the details.") : l.prefix(1).uppercased() + l.dropFirst()
         case .noCrossOver: return Names.text("UI_NOCROSSOVER_DETAIL", "Trebuchet runs the game in CrossOver 26.")
-        case .notInstalled: return Names.text("UI_NOTINSTALLED_DETAIL", "Run the Trebuchet installer again.")
+        case .notInstalled: return Names.text("UI_NOTINSTALLED_DETAIL", "Download Trebuchet again from trebuchetapp.com.")
         case .noBottle: return Names.text("UI_NOBOTTLE_DETAIL", "Install Age of Empires II: DE from Steam in a CrossOver bottle.")
         }
     }
@@ -194,6 +198,7 @@ struct StatusCard: View {
         case .noCrossOver: return (Names.text("UI_GETCROSSOVER", "Get CrossOver"), { NSWorkspace.shared.open(URL(string: "https://www.codeweavers.com/crossover")!) })
         case .notInstalled: return (Names.text("UI_SHOWFOLDER", "Show Folder"), { NSWorkspace.shared.open(Install.prefix.deletingLastPathComponent()) })
         case .noBottle: return (Names.text("UI_SETTINGS", "Settings…"), openSettings)
+        case .notInApplications: return (Names.text("UI_SHOWAPPS", "Open Applications Folder"), { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications")) })
         default: return nil
         }
     }
@@ -406,13 +411,55 @@ struct GameTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
+                LabeledContent(Names.text("UI_CROSSOVER", "CrossOver")) {
+                    HStack {
+                        Text(Install.crossOverApp.path).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                        Button(Names.text("UI_CHOOSE", "Choose…")) { chooseCrossOver() }
+                        if !fixes.crossOverPath.isEmpty { Button(Names.text("UI_DEFAULT", "Default")) { fixes.crossOverPath = "" } }
+                    }
+                }
+            } footer: {
+                Text(Names.text("UI_CROSSOVER_FOOTER", "Trebuchet reads CrossOver and never changes it.")).font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 TextField(Names.text("UI_ARGS", "Extra launch options"), text: $fixes.args, prompt: Text("SKIPINTRO"))
             } footer: {
                 Text(Names.text("UI_ARGS_FOOTER", "For single-player tests only.")).font(.caption).foregroundStyle(.secondary)
             }
+            if Install.managesPrefix {
+                Section {
+                    Button(Names.text("UI_RESET", "Reset Trebuchet…"), role: .destructive) { confirmReset = true }
+                        .disabled(resetting)
+                } footer: {
+                    Text(Names.text("UI_RESET_FOOTER", "Removes Trebuchet's copy of CrossOver and its logs. Your CrossOver, your bottle and your game stay as they are. The next Launch prepares everything again. To uninstall, reset, then move Trebuchet to the Trash."))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(height: 300)
+        .frame(height: Install.managesPrefix ? 470 : 300)
+        .confirmationDialog(Names.text("UI_RESET_CONFIRM", "Reset Trebuchet?"), isPresented: $confirmReset) {
+            Button(Names.text("UI_RESET_BUTTON", "Reset"), role: .destructive) {
+                resetting = true
+                do { try Prepare.reset() } catch { resetError = error.localizedDescription }
+                resetting = false
+            }
+        } message: {
+            Text(Install.prefix.path)
+        }
+        .alert(resetError ?? "", isPresented: Binding(get: { resetError != nil }, set: { if !$0 { resetError = nil } })) { Button("OK") {} }
+    }
+
+    @State private var confirmReset = false
+    @State private var resetting = false
+    @State private var resetError: String?
+
+    private func chooseCrossOver() {
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.applicationBundle]
+        p.directoryURL = URL(fileURLWithPath: "/Applications")
+        p.message = Names.text("UI_CHOOSE_CROSSOVER", "Choose your CrossOver app")
+        if p.runModal() == .OK, let u = p.url { fixes.crossOverPath = u.path }
     }
 }
 
@@ -442,6 +489,18 @@ struct AboutView: View {
                 if let n = Install.notice { NSWorkspace.shared.open(n) } else { open("REPO_URL", "https://github.com/kyrios/TrebuchetApp") }
             }
             .buttonStyle(.link).font(.callout).padding(.top, Space.xs)
+            if Install.managesPrefix {
+                HStack(spacing: Space.xs) {
+                    Text(Names.text("UI_FILES_AT", "Files:")).foregroundStyle(.secondary)
+                    Text(Install.prefix.path.replacingOccurrences(of: Install.home.path, with: "~"))
+                        .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                    Button(Names.text("UI_SHOWINFINDER", "Show in Finder")) {
+                        let fm = FileManager.default
+                        NSWorkspace.shared.open(fm.fileExists(atPath: Install.prefix.path) ? Install.prefix : Install.prefix.deletingLastPathComponent())
+                    }.buttonStyle(.link)
+                }
+                .font(.caption).padding(.top, Space.s)
+            }
             Text(Names.text("UI_DISCLAIMER", "Not affiliated with or endorsed by Microsoft, World's Edge or Forgotten Empires. Age of Empires is a trademark of Microsoft."))
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, Space.m)

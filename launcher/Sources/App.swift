@@ -14,15 +14,34 @@ enum Entry {
             print("mode=\(fixes.plain ? "stock" : "soft")")
             return
         }
+        // --prepare: only the 2.1 first-launch work (move a 2.0 install aside, make the CrossOver copy); starts no game
+        if a.contains("--prepare") {
+            let r = prepareForLaunch()
+            print(r.map { "not prepared: \($0)" } ?? "prepared: \(Install.prefix.path)")
+            exit(r == nil ? 0 : 1)
+        }
         // --launch: the same launch as the button, without a window (scripted real start); waits for the game
         if a.contains("--launch") {
-            let p = Runner.makeProcess(Fixes())
+            let failure = prepareForLaunch()
+            if let r = failure { print("Part A not used: \(r). Starting the game the normal CrossOver way.") }
+            let p = Runner.makeProcess(Fixes(), forceStock: failure != nil)
             do { try p.run() } catch { print("could not start: \(error)"); exit(1) }
             p.waitUntilExit()
             exit(p.terminationStatus)
         }
         TrebuchetApp.main()
     }
+}
+
+/// The 2.1 work before a start, for the command-line modes (the Launch button does the same in Runner.launch).
+/// Returns nil when the copy is ready (or this app does not manage one), else the reason.
+func prepareForLaunch() -> String? {
+    guard Install.managesPrefix else { return nil }
+    for l in Migration.run() { print("migration: \(l)") }
+    guard Prepare.needed() else { return nil }
+    let r = Prepare.run { print("step: \($0)") }
+    if r != nil { Prepare.installScriptsOnly() }
+    return r
 }
 
 struct TrebuchetApp: App {

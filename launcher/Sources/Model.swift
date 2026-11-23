@@ -6,25 +6,75 @@ import Foundation
 // MARK: - Install location
 
 enum Install {
-    /// The install prefix (AOE2_PREFIX overrides it, e.g. for a scratch install used for screenshots).
-    static var prefix: URL {
-        if let p = ProcessInfo.processInfo.environment["AOE2_PREFIX"], !p.isEmpty { return URL(fileURLWithPath: p) }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/aoe2-mac-softfault")
+    static let fm = FileManager.default
+    static var home: URL { fm.homeDirectoryForCurrentUser }
+
+    /// The payload inside the app (2.1+): Contents/Resources/Trebuchet with MANIFEST, bin/ and scripts/. nil for a 2.0-style app.
+    static var payload: URL? {
+        guard let r = Bundle.main.resourceURL?.appendingPathComponent("Trebuchet"),
+              fm.fileExists(atPath: r.appendingPathComponent("scripts/install.sh").path) else { return nil }
+        return r
     }
+    /// Command-line arguments only (NSArgumentDomain, e.g. `-supportDir /path`); never read from or written to stored settings.
+    static func argument(_ key: String) -> String? {
+        let v = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[key] as? String
+        return (v?.isEmpty ?? true) ? nil : v
+    }
+    /// AOE2_PREFIX: a ready install that is used as it is (harness, screenshots). The app never prepares or migrates it.
+    static var fixedPrefix: URL? {
+        guard let p = ProcessInfo.processInfo.environment["AOE2_PREFIX"], !p.isEmpty else { return nil }
+        return URL(fileURLWithPath: p)
+    }
+    /// The folder with the CrossOver copy and our files.
+    /// 2.1: ~/Library/Application Support/Trebuchet (a harness test may pass `-supportDir <scratch folder>`).
+    static var prefix: URL {
+        if let p = fixedPrefix { return p }
+        if let s = argument("supportDir") { return URL(fileURLWithPath: s) }
+        if payload != nil { return home.appendingPathComponent("Library/Application Support/Trebuchet") }
+        return home.appendingPathComponent("Library/Application Support/aoe2-mac-softfault")
+    }
+    /// True when this app prepares the folder itself from its payload (no installer).
+    static var managesPrefix: Bool { payload != nil && fixedPrefix == nil }
     static var script: URL { prefix.appendingPathComponent("run-aoe2.sh") }
     static var logs: URL { prefix.appendingPathComponent("logs") }
-    static var isInstalled: Bool { FileManager.default.isExecutableFile(atPath: script.path) }
-    /// Read-only check for CrossOver (never touched).
+    static var isInstalled: Bool { managesPrefix || fm.isExecutableFile(atPath: script.path) }
+
+    /// CrossOver: /Applications/CrossOver.app unless the player chose another copy in Settings. Read only, never changed.
+    static var crossOverApp: URL {
+        if let p = UserDefaults.standard.string(forKey: "crossOverPath"), !p.isEmpty { return URL(fileURLWithPath: p) }
+        return URL(fileURLWithPath: "/Applications/CrossOver.app")
+    }
     static var crossOverInstalled: Bool {
         if let d = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_NOCX"], d == "1" { return false }
-        return FileManager.default.fileExists(atPath: "/Applications/CrossOver.app")
+        return fm.fileExists(atPath: crossOverApp.appendingPathComponent("Contents/SharedSupport/CrossOver/bin/wine").path)
     }
+    static func bundleVersion(_ app: URL) -> String? {
+        (NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) as? [String: Any])?["CFBundleVersion"] as? String
+    }
+
+    /// A text file of this release (names.conf, defaults.conf, rules.manifest): the app's own copy first, else the install folder.
+    static func config(_ name: String) -> URL {
+        if let p = payload { return p.appendingPathComponent("scripts/\(name)") }
+        return prefix.appendingPathComponent(name)
+    }
+
+    /// The app is running from a disk image or from App Translocation (opened before it was moved to Applications).
+    static var runsFromDiskImageOrTranslocated: Bool {
+        let path = Bundle.main.bundlePath
+        if path.contains("/AppTranslocation/") { return true }
+        if path.hasPrefix("/Volumes/") {
+            let v = (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly
+            return v ?? false
+        }
+        return false
+    }
+
     /// Licences and notices: the copy inside the app (build-app.sh puts LICENSES/ into Contents/Resources) first, then the prefix.
     static var notice: URL? {
         var candidates: [URL] = []
         if let r = Bundle.main.resourceURL { candidates.append(r.appendingPathComponent("LICENSES/NOTICE.md")) }
         candidates += ["LICENSES/NOTICE.md", "NOTICE.md"].map { prefix.appendingPathComponent($0) }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return candidates.first { fm.fileExists(atPath: $0.path) }
     }
 }
 
@@ -33,7 +83,7 @@ enum Install {
 enum Names {
     static let table: [String: String] = {
         var d: [String: String] = [:]
-        guard let text = try? String(contentsOf: Install.prefix.appendingPathComponent("names.conf"), encoding: .utf8) else { return d }
+        guard let text = try? String(contentsOf: Install.config("names.conf"), encoding: .utf8) else { return d }
         for raw in text.split(whereSeparator: \.isNewline) where !raw.hasPrefix("#") {
             let p = raw.split(separator: "=", maxSplits: 1).map(String.init)
             if p.count == 2 { d[p[0].trimmingCharacters(in: .whitespaces)] = p[1].trimmingCharacters(in: .whitespaces) }
@@ -60,7 +110,7 @@ enum Names {
 }
 
 func loadDefaults() -> [String: Bool] {
-    guard let text = try? String(contentsOf: Install.prefix.appendingPathComponent("defaults.conf"), encoding: .utf8) else { return [:] }
+    guard let text = try? String(contentsOf: Install.config("defaults.conf"), encoding: .utf8) else { return [:] }
     var d: [String: Bool] = [:]
     for raw in text.split(whereSeparator: \.isNewline) {
         let parts = raw.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -77,7 +127,7 @@ struct Rule: Identifiable { let id, name, grade, target, offEnv: String }
 func loadRules() -> (pack: String, rules: [Rule]) {
     let fallback = [Rule(id: "reorder", name: "Swift Health Bars", grade: "D", target: "game", offEnv: "AOE2_NO_REORDER"),
                     Rule(id: "f54a", name: "Hitch Guard", grade: "C", target: "rosetta", offEnv: "AOE2_NO_F54A")]
-    guard let text = try? String(contentsOf: Install.prefix.appendingPathComponent("rules.manifest"), encoding: .utf8) else { return ("built-in", fallback) }
+    guard let text = try? String(contentsOf: Install.config("rules.manifest"), encoding: .utf8) else { return ("built-in", fallback) }
     var pack = "?"; var rules: [Rule] = []
     for raw in text.split(whereSeparator: \.isNewline) {
         let line = String(raw)
@@ -98,8 +148,17 @@ func loadRules() -> (pack: String, rules: [Rule]) {
 
 /// Optional parts the installer marks with a file.
 enum InstallParts {
-    static var fastClock: Bool { FileManager.default.fileExists(atPath: Install.prefix.appendingPathComponent(".has-fastqpc").path) }
-    static var localCursor: Bool { FileManager.default.fileExists(atPath: Install.prefix.appendingPathComponent(".has-t4").path) }
+    /// 2.1: the words in the app's bin/FEATURES; 2.0: the installer's .has-* marker files.
+    static let features: Set<String>? = {
+        guard let p = Install.payload, let t = try? String(contentsOf: p.appendingPathComponent("bin/FEATURES"), encoding: .utf8) else { return nil }
+        return Set(t.split(whereSeparator: { $0.isWhitespace }).map { $0.lowercased() })
+    }()
+    static func has(_ f: String) -> Bool {
+        if let s = features { return s.contains(f) }
+        return FileManager.default.fileExists(atPath: Install.prefix.appendingPathComponent(".has-\(f)").path)
+    }
+    static var fastClock: Bool { has("fastqpc") }
+    static var localCursor: Bool { has("t4") }
 }
 
 /// CrossOver bottles that contain AoE2 DE (Steam).
@@ -144,6 +203,7 @@ final class Fixes: ObservableObject {
     @AppStorage("bottle") var bottle = ""
     @AppStorage("hud") var hud = false
     @AppStorage("args") var args = ""
+    @AppStorage("crossOverPath") var crossOverPath = ""
 
     let rules: [Rule]
     let pack: String
@@ -197,6 +257,7 @@ final class Fixes: ObservableObject {
         set("FASTQPC", fastqpc && InstallParts.fastClock)
         set("T4", t4 && InstallParts.localCursor)
         env["AOE2_BACKEND"] = backend
+        env["CX_APP"] = Install.crossOverApp.path
         if let b = effectiveBottle { env["AOE2_BOTTLE"] = b }
         if hud { env["AOE_HUD"] = "1" }
         let a = args.trimmingCharacters(in: .whitespaces)
@@ -205,6 +266,6 @@ final class Fixes: ObservableObject {
     }
     var managedKeys: [String] {
         (rules.map { $0.id.uppercased() } + ["TEXTFIX", "MSYNC", "FASTQPC", "T4"]).flatMap { ["AOE2_\($0)", "AOE2_NO_\($0)"] }
-            + ["AOE2_BACKEND", "AOE2_BOTTLE", "AOE_HUD", "AOE2_ARGS", "AOE_SUBST_COUNT", "AOE_RECLAIM_TEST_MUTATE"]
+            + ["AOE2_BACKEND", "AOE2_BOTTLE", "AOE_HUD", "AOE2_ARGS", "AOE_SUBST_COUNT", "AOE_RECLAIM_TEST_MUTATE", "CX_APP"]
     }
 }

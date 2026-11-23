@@ -5,6 +5,7 @@ import Foundation
 
 enum LaunchState: Equatable {
     case ready
+    case preparing(String)          // first Launch or after an update: making the CrossOver copy (one progress line)
     case launching(String)          // last plain line
     case running(plain: Bool)
     case fixOff(String)             // "<fix> is off: …"
@@ -15,11 +16,19 @@ enum LaunchState: Equatable {
     case noCrossOver
     case notInstalled
     case noBottle
+    case notInApplications          // opened from the disk image (or translocated): move it first
 
+    /// Shows a spinner.
+    var isBusy: Bool {
+        switch self {
+        case .preparing, .launching: return true
+        default: return false
+        }
+    }
     /// States that block the Launch button.
     var blocks: Bool {
         switch self {
-        case .launching, .running, .noCrossOver, .notInstalled, .noBottle: return true
+        case .preparing, .launching, .running, .noCrossOver, .notInstalled, .noBottle, .notInApplications: return true
         default: return false
         }
     }
@@ -36,10 +45,11 @@ final class Runner: ObservableObject {
     func refreshPreflight(_ fixes: Fixes) {
         if let d = Demo.state { state = d; return }
         switch state {
-        case .launching, .running: return
+        case .preparing, .launching, .running: return
         default: break
         }
-        if !Install.crossOverInstalled { state = .noCrossOver }
+        if Install.managesPrefix && Install.runsFromDiskImageOrTranslocated { state = .notInApplications }
+        else if !Install.crossOverInstalled { state = .noCrossOver }
         else if !Install.isInstalled { state = .notInstalled }
         else if fixes.effectiveBottle == nil { state = .noBottle }
         else if state.blocks { state = .ready }
@@ -51,18 +61,46 @@ final class Runner: ObservableObject {
         env.merge(fixes.environment()) { _, new in new }
         return env
     }
-    nonisolated static func makeProcess(_ fixes: Fixes) -> Process {
+    nonisolated static func makeProcess(_ fixes: Fixes, forceStock: Bool = false) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = [Install.script.path, fixes.plain ? "stock" : "soft"]
+        p.arguments = [Install.script.path, (fixes.plain || forceStock) ? "stock" : "soft"]
         p.environment = launchEnvironment(fixes)
         return p
     }
 
+    /// Launch: first (2.1) move a 2.0 install aside and prepare the CrossOver copy if needed, then start the game.
     func launch(_ fixes: Fixes) {
         // Demo builds (screenshots) never start anything.
         guard Demo.state == nil, !state.blocks else { return }
-        let p = Runner.makeProcess(fixes)
+        guard Install.managesPrefix else { start(fixes); return }
+        state = .preparing(Names.text("UI_CHECKING_FILES", "Checking Trebuchet's files…"))
+        let cx = Install.bundleVersion(Install.crossOverApp).map { $0.split(separator: ".").prefix(2).joined(separator: ".") } ?? ""
+        Task.detached {
+            Migration.run()
+            var failure: String? = nil
+            if Prepare.needed() {
+                await MainActor.run {
+                    self.state = .preparing(Names.text("UI_PREPARING", "Preparing Trebuchet for CrossOver %@… about 5 s").replacingOccurrences(of: "%@", with: cx))
+                }
+                failure = Prepare.run { _ in }
+                if failure != nil { Prepare.installScriptsOnly() }
+            }
+            let reason = failure
+            await MainActor.run {
+                if let r = reason {
+                    // Unsupported CrossOver or a damaged app: the normal CrossOver start, and say why.
+                    self.start(fixes, forceStock: true)
+                    self.state = .fallback(r + ". " + Names.text("UI_FALLBACK_STOCK", "Starting the game the normal CrossOver way."))
+                } else {
+                    self.start(fixes)
+                }
+            }
+        }
+    }
+
+    private func start(_ fixes: Fixes, forceStock: Bool = false) {
+        let p = Runner.makeProcess(fixes, forceStock: forceStock)
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -70,7 +108,7 @@ final class Runner: ObservableObject {
             let data = h.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             let new = text.split(whereSeparator: \.isNewline).map(String.init)
-            Task { @MainActor in self?.consume(new, plain: fixes.plain) }
+            Task { @MainActor in self?.consume(new, plain: fixes.plain || forceStock) }
         }
         p.terminationHandler = { [weak self] proc in
             pipe.fileHandleForReading.readabilityHandler = nil
@@ -136,6 +174,8 @@ enum Demo {
         case "main-nocrossover": return .noCrossOver
         case "main-notinstalled": return .notInstalled
         case "main-nobottle": return .noBottle
+        case "main-preparing": return .preparing("Preparing Trebuchet for CrossOver 26.3… about 5 s")
+        case "main-notinapplications": return .notInApplications
         default: return .ready
         }
     }
