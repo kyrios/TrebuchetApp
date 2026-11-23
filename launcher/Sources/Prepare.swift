@@ -81,12 +81,12 @@ enum Prepare {
         guard let pl = Install.payload else { return }
         let fm = FileManager.default
         try? fm.createDirectory(at: Install.prefix, withIntermediateDirectories: true)
-        for f in ["run-aoe2.sh", "run-captureage.sh", "names.conf", "defaults.conf", "rules.manifest", "mk_reorder.py", "mk_rules.py"] {
+        for f in ["run-aoe2.sh", "names.conf", "defaults.conf", "rules.manifest", "mk_reorder.py", "mk_rules.py"] {
             let dst = Install.prefix.appendingPathComponent(f)
             try? fm.removeItem(at: dst)
             try? fm.copyItem(at: pl.appendingPathComponent("scripts/\(f)"), to: dst)
         }
-        for f in ["run-aoe2.sh", "run-captureage.sh"] { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Install.prefix.appendingPathComponent(f).path) }
+        for f in ["run-aoe2.sh"] { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Install.prefix.appendingPathComponent(f).path) }
     }
 
     /// Settings > Reset Trebuchet: remove the folder (the CrossOver copy, our files, logs). The app prepares it again on the next Launch.

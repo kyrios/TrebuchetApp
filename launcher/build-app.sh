@@ -48,7 +48,6 @@ if [[ -n "${PAYLOAD:-}" ]]; then
   for f in ntdll.so ntdll.dll x87sidecar FEATURES win32u.so; do [[ -f "$PAYLOAD/bin/$f" ]] && cp -p "$PAYLOAD/bin/$f" "$t/bin/$f"; done
   [[ -d "$PAYLOAD/bin/dxmt" ]] && cp -pR "$PAYLOAD/bin/dxmt" "$t/bin/dxmt"
   for f in install.sh run-aoe2.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf; do cp -p "$here/../scripts/$f" "$t/scripts/$f"; done
-  [[ -f "$here/../scripts/run-captureage.sh" ]] && cp -p "$here/../scripts/run-captureage.sh" "$t/scripts/run-captureage.sh"
   chmod 755 "$t/bin/x87sidecar" "$t/bin/ntdll.so" "$t"/scripts/*.sh
   find "$t" -name .DS_Store -delete
 fi
@@ -75,9 +74,6 @@ bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${
 [[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
-# NO_CAPTUREAGE=1: a build without the Launch CaptureAge button and its detection (the scripts keep the mode; nothing
-# in the app reaches it). The game's own stock-game warning stays.
-[[ -n ${NO_CAPTUREAGE:-} ]] && /usr/libexec/PlistBuddy -c "Add :TrebuchetCaptureAge bool false" "$app/Contents/Info.plist"
 if [[ -n ${TEST_BUILD:-} ]]; then
   /usr/libexec/PlistBuddy -c "Add :TrebuchetTestBuild bool true" -c "Add :TrebuchetSupportDir string $name" "$app/Contents/Info.plist"
 fi
