@@ -91,6 +91,10 @@ cp -cR "$dxroot" "$PREFIX/dxmt-crossover"
 if [[ -n "${PREBUILT:-}" && -d "$PREBUILT/dxmt" ]]; then cp -cR "$PREBUILT/dxmt" "$PREFIX/dxmt-textfix"; fi
 # Installed manifest for the launcher: CrossOver build + stock hashes + hashes of OUR installed files
 # (after signing). run-aoe2.sh checks it at every start, before anything else.
+# Gatekeeper: replacing ntdll breaks the copy's CodeWeavers seal. On Macs that track provenance (and for a quarantined
+# CrossOver) a broken seal makes macOS call the copy "damaged". Re-seal the copy ad hoc (no hardened runtime), so it is
+# internally consistent again. This rewrites only the bundle's main executable and seal, not ntdll (its hashes below stay).
+/usr/bin/codesign --force --deep --sign - "$app" >/dev/null 2>&1 || die "could not re-seal Trebuchet's CrossOver copy."
 {
   grep -E '^(built_for_cx|stock) ' "$mf_in"
   print "ours copy:lib/wine/x86_64-unix/ntdll.so $(sha "$lib/x86_64-unix/ntdll.so")"
@@ -116,6 +120,11 @@ cp "$here/names.conf" "$PREFIX/names.conf"
 find "$PREFIX" -maxdepth 1 -name ".has-*" -delete; [[ -n "${PREBUILT:-}" && -f "$PREBUILT/FEATURES" ]] && for f in $(<"$PREBUILT/FEATURES"); do : > "$PREFIX/.has-${f:l}"; done
 print "ours prefix:defaults.conf $(sha "$PREFIX/defaults.conf")" >> "$PREFIX/MANIFEST"
 chmod +x "$PREFIX/run-aoe2.sh"
+# Gatekeeper: the CrossOver copy is an APFS clone of the player's CrossOver, so it inherits a quarantine flag if that
+# CrossOver was downloaded with a browser; our files copied out of a downloaded Trebuchet carry one too. The copy's seal is
+# broken on purpose (our ntdll replaces CrossOver's), so a quarantined copy is reported as "damaged" on its first start.
+# Only Trebuchet's own folder is cleared; /Applications/CrossOver.app and the bottle are never touched.
+/usr/bin/xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true   # Apple's xattr by path: a Python xattr earlier in PATH has no -r
 print "payload $(payload_id)\ncrossover $have_cx" > "$PREFIX/.prepared"
 step "Ready"
 if [[ -n "${NO_LAUNCHER:-}" ]]; then exit 0; fi
