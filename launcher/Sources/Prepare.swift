@@ -92,6 +92,9 @@ enum Prepare {
     /// Settings > Reset Trebuchet: remove the folder (the CrossOver copy, our files, logs). The app prepares it again on the next Launch.
     static func reset() throws {
         guard Install.managesPrefix else { return }
+        if Install.gameRunning {
+            throw NSError(domain: "Trebuchet", code: 1, userInfo: [NSLocalizedDescriptionKey: Names.text("UI_RESET_RUNNING", "Quit Age of Empires II first, then reset.")])
+        }
         let fm = FileManager.default
         if fm.fileExists(atPath: Install.prefix.path) { try fm.removeItem(at: Install.prefix) }
     }

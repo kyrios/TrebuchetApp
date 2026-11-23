@@ -73,7 +73,7 @@ final class Runner: ObservableObject {
     func launch(_ fixes: Fixes) {
         // Demo builds (screenshots) never start anything.
         guard Demo.state == nil, !state.blocks else { return }
-        guard Install.managesPrefix else { start(fixes); return }
+        guard Install.managesPrefix, !Install.gameRunning else { start(fixes); return }   // running game: run-aoe2.sh says so
         state = .preparing(Names.text("UI_CHECKING_FILES", "Checking Trebuchet's files…"))
         let cx = Install.bundleVersion(Install.crossOverApp).map { $0.split(separator: ".").prefix(2).joined(separator: ".") } ?? ""
         Task.detached {

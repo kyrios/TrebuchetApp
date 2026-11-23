@@ -58,6 +58,16 @@ enum Install {
         return prefix.appendingPathComponent(name)
     }
 
+    /// AoE2 is running (any copy): the prepared folder must not be replaced or removed now.
+    static var gameRunning: Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-qf", #"AoE2DE_s\.exe"#]
+        do { try p.run() } catch { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
+
     /// The app is running from a disk image or from App Translocation (opened before it was moved to Applications).
     static var runsFromDiskImageOrTranslocated: Bool {
         let path = Bundle.main.bundlePath

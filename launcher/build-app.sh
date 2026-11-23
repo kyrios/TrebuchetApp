@@ -13,8 +13,26 @@ name=$(sed -n 's/^APP_NAME=//p' "$here/../scripts/names.conf" | head -1); name=$
 app="$OUT/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 \
+# Sparkle (automatic updates): on when launcher/sparkle-public-key.txt holds the EdDSA public key. The framework comes
+# from Sparkle's release archive, pinned by hash, cached in launcher/.sparkle-<version> (git-ignored).
+SPARKLE_VERSION=2.10.1
+SPARKLE_SHA256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
+pub=$(tr -d '[:space:]' < "$here/sparkle-public-key.txt" 2>/dev/null || true)
+sparkle=()
+if [[ -n $pub ]]; then
+  cache=${SPARKLE_CACHE:-$here/.sparkle-$SPARKLE_VERSION}
+  if [[ ! -d $cache/Sparkle.framework ]]; then
+    mkdir -p "$cache"
+    curl -fsSL -o "$cache/sparkle.tar.xz" "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+    echo "$SPARKLE_SHA256  $cache/sparkle.tar.xz" | shasum -a 256 -c >/dev/null || { echo "Sparkle archive hash mismatch"; exit 1; }
+    tar -xf "$cache/sparkle.tar.xz" -C "$cache" ./Sparkle.framework
+    rm "$cache/sparkle.tar.xz"
+  fi
+  sparkle=(-F "$cache" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -D SPARKLE)
+fi
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 $sparkle \
   -o "$app/Contents/MacOS/AoE2Launcher" "$here"/Sources/*.swift
+if [[ -n $pub ]]; then mkdir -p "$app/Contents/Frameworks"; ditto "$cache/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"; fi
 cp "$here/../scripts/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 # Licence texts travel inside the app too (LGPL/MIT notices next to the binaries they cover).
 cp -R "$here/../LICENSES" "$app/Contents/Resources/LICENSES"
@@ -51,6 +69,14 @@ EOF
 bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${bid:-io.github.kyrios.trebuchet}
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
+if [[ -n $pub ]]; then
+  pb=/usr/libexec/PlistBuddy; plist="$app/Contents/Info.plist"
+  $pb -c "Add :SUFeedURL string https://kyrios.github.io/TrebuchetApp/appcast.xml" "$plist"
+  $pb -c "Add :SUPublicEDKey string $pub" "$plist"
+  $pb -c "Add :SUEnableAutomaticChecks bool true" "$plist"
+  $pb -c "Add :SUAutomaticallyUpdate bool true" "$plist"
+  $pb -c "Add :SUScheduledCheckInterval integer 86400" "$plist"
+fi
 # The payload files keep their exact tested bytes (MANIFEST hashes); only the release signs them (sign-app.sh).
 codesign -s - -f "$app"
 echo "built: $app"
