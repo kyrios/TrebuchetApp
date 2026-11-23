@@ -11,7 +11,7 @@ index 74232f8..e2b73b6 100644
      src/macho_loader.cpp
      src/mach_exception.cpp
 diff --git a/rosetta_loader/src/main.cpp b/rosetta_loader/src/main.cpp
-index c526c02..9088a29 100644
+index c526c02..954b9e4 100644
 --- a/rosetta_loader/src/main.cpp
 +++ b/rosetta_loader/src/main.cpp
 @@ -34,6 +34,7 @@
@@ -22,12 +22,22 @@ index c526c02..9088a29 100644
  #include "rosetta_core/Config.h"
  #include "rosetta_core/ConfigEnv.h"
  #include "rosetta_core/CoreConfig.h"
-@@ -2190,6 +2191,18 @@ int main(int argc, char* argv[]) try {
+@@ -2190,6 +2191,35 @@ int main(int argc, char* argv[]) try {
              }
          }
  
 +        // F54a: bounded reclaim in Rosetta's runtime (AOE_RECLAIM_BUDGET_US). Off without the variable; fails closed
 +        // (stock reclaim) on any runtime build it cannot verify. Never fails the attach.
++        // In cooperative mode the tracee must i-cache-invalidate the reclaim patch itself (a cross-process flush is
++        // not reliable, see coop_proto.h), but the reply has only two slots. The libRosettaRuntime ranges (entry
++        // patches + handler padding) all lie in the one executable region found above, so they fit one slot and
++        // the reclaim patch takes the other. If they don't (unexpected layout), the reclaim patch is not installed.
++        const uint64_t libLo = decodeEntryAddr != 0 ? std::min(translateInsnAddr, decodeEntryAddr) : translateInsnAddr;
++        const uint64_t libHi = decodeBlobEnd;
++        const bool libOneSlot = libLo >= codeRegStart && libHi <= codeRegEnd && libLo < libHi &&
++                                padStartAddr >= libLo && translateInsnAddr + blobs.entry.size() <= libHi;
++        reclaim_cap::IcacheRange reclaimIcache;
++        bool reclaimInstalled = false;
 +        {
 +            reclaim_cap::Access acc;
 +            acc.read = [&](uint64_t addr, void* dst, size_t len) { return dbg.readMemory(addr, dst, len); };
@@ -35,18 +45,38 @@ index c526c02..9088a29 100644
 +            acc.protect = [&](uint64_t addr, vm_prot_t prot, size_t len) {
 +                return dbg.adjustMemoryProtection(addr, prot, len);
 +            };
-+            (void)reclaim_cap::install(acc, runtimeBase);
++            const char* blocked = (cooperative && !libOneSlot) ? "cooperative mode: no i-cache slot for the runtime patch" : nullptr;
++            const auto r = reclaim_cap::install(acc, runtimeBase, blocked, &reclaimIcache);
++            if (r == reclaim_cap::Result::Fatal) {
++                // A Rosetta runtime page stayed non-executable: resuming would crash the game at a random point.
++                fprintf(stdout, "[rosettax87] reclaim patch left a runtime page non-executable; not resuming the process\n");
++                return 1;
++            }
++            reclaimInstalled = r == reclaim_cap::Result::Installed && reclaimIcache.len != 0;
 +        }
 +
          // Record the patched code ranges so the tracee can invalidate its own
          // i-cache (cooperative mode). The entry (hot in the i-cache post-init)
          // is the one that MUST be flushed; the handler lives in never-executed
+@@ -2213,6 +2243,12 @@ int main(int argc, char* argv[]) try {
+         }
+         coopIcacheAddr[1] = padStartAddr;
+         coopIcacheLen[1] = decodeBlobEnd - padStartAddr;
++        if (reclaimInstalled) {   // slot 0: all libRosettaRuntime patches (one region); slot 1: the reclaim patch
++            coopIcacheAddr[0] = libLo;
++            coopIcacheLen[0] = libHi - libLo;
++            coopIcacheAddr[1] = reclaimIcache.addr;
++            coopIcacheLen[1] = reclaimIcache.len;
++        }
+ 
+         // Capture the tracee's task port BEFORE releasing it. The send-right is
+         // held in MuhDebugger::taskPort_ and stays valid past release (default's
 diff --git a/rosetta_loader/src/reclaim_cap.cpp b/rosetta_loader/src/reclaim_cap.cpp
 new file mode 100644
-index 0000000..c66ab04
+index 0000000..4c7276c
 --- /dev/null
 +++ b/rosetta_loader/src/reclaim_cap.cpp
-@@ -0,0 +1,409 @@
+@@ -0,0 +1,445 @@
 +// reclaim_cap: bounded reclaim of dead translation fragments in Rosetta's runtime (F54a, "Stutter fix").
 +// AOE_RECLAIM_BUDGET_US=<µs> (and/or AOE_RECLAIM_CAP=<K>) makes every reclaim pass stop after the budget; the next pass continues.
 +// AOE_RECLAIM_LOG=<file>: one status line ([reclaimcap] installed / not installed: <why>). Off unless a variable is set.
@@ -61,6 +91,7 @@ index 0000000..c66ab04
 +
 +#include <cstdio>
 +#include <cstdlib>
++#include <algorithm>
 +#include <cstring>
 +#include <map>
 +#include <string>
@@ -217,17 +248,18 @@ index 0000000..c66ab04
 +// Exactness: no fragment is freed earlier than stock would free it (only the timing of freeing moves later); no guest
 +// instruction, register or memory changes. Exact-bytes gated; off unless the variable is set.
 +constexpr uint64_t kOffLwPad2 = kOffTextPad + 0x1c00;   // stub area in the text padding (same address as build 827ba3e7)
-+bool installImpl(const Access& acc, uint64_t rt) {
++Result installImpl(const Access& acc, uint64_t rt, const char* blocked, IcacheRange* icache) {
 +    const char* kv = std::getenv("AOE_RECLAIM_CAP");
 +    const char* bv = std::getenv("AOE_RECLAIM_BUDGET_US");   // F54a-2: time budget per pass (µs), checked every 64 fragments
 +    uint64_t K = 0, budgetUs = 0;
 +    if (kv && (!parseU64(kv, K) || K > 4095)) K = 0;
 +    if (bv && (!parseU64(bv, budgetUs) || budgetUs > 100000)) budgetUs = 0;
-+    if (K == 0 && budgetUs == 0) return false;
++    if (K == 0 && budgetUs == 0) return Result::Off;
 +    const uint64_t budgetTicks = budgetUs * 24;              // CNTVCT 24 MHz
 +    FILE* lg = stdout;
 +    if (const char* rp = std::getenv("AOE_RECLAIM_LOG")) if (*rp) if (FILE* f = fopen(rp, "a")) lg = f;   // install proof for the launcher
-+    auto refuse = [&](const char* why) { fprintf(lg, "[reclaimcap] not installed: %s\n", why); fflush(lg); return false; };
++    auto refuse = [&](const char* why) { fprintf(lg, "[reclaimcap] not installed: %s\n", why); fflush(lg); return Result::Refused; };
++    if (blocked) return refuse(blocked);
 +    // Sites: exact fingerprint -> the fixed offsets (fast path), and the pattern locator must agree; otherwise the locator
 +    // alone (reclaim_locate.hpp: structural signatures + cross-checks; any doubt -> refuse = stock behaviour).
 +    bool fp = true;
@@ -415,13 +447,22 @@ index 0000000..c66ab04
 +    std::vector<uint8_t> probe(s.w.size() * 4);
 +    if (!acc.read(rt + padAt, probe.data(), probe.size())) return refuse("cannot read the text padding");
 +    for (uint8_t b : probe) if (b != 0) return refuse("text padding is in use");
++    // The stubs store to the __DATA tail: it must be live and writable, or nothing is patched (the zero tail in the
++    // file says nothing about the live mapping).
 +    const uint64_t z[6] = {0, 0, 0, 0, 0, 0};
-+    acc.write(st + kStRcCount, z, 48);
-+    auto patchCode = [&](uint64_t addr, const void* bytes, size_t len) {
-+        return acc.protect(addr, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, len) && acc.write(addr, bytes, len) &&
-+               acc.protect(addr, VM_PROT_READ | VM_PROT_EXECUTE, len);
-+    };
-+    if (!patchCode(rt + padAt, s.w.data(), s.w.size() * 4)) return refuse("cannot write the stubs");
++    if (!acc.write(st + kStRcCount, z, 48)) return refuse("cannot write the state in the __DATA tail (nothing patched)");
++    { uint64_t back[6] = {1, 1, 1, 1, 1, 1};
++      if (!acc.read(st + kStRcCount, back, 48) || memcmp(back, z, 48)) return refuse("state in the __DATA tail does not read back (nothing patched)"); }
++    // Stubs into the zero padding. Its page may also hold live code (on another build), so it must be r-x again
++    // afterwards: one retry, else Fatal (the caller must not resume the process with that page non-executable).
++    if (!acc.protect(rt + padAt, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, s.w.size() * 4)) return refuse("cannot make the text padding writable");
++    const bool stubsWritten = acc.write(rt + padAt, s.w.data(), s.w.size() * 4);
++    if (!acc.protect(rt + padAt, VM_PROT_READ | VM_PROT_EXECUTE, s.w.size() * 4) &&
++        !acc.protect(rt + padAt, VM_PROT_READ | VM_PROT_EXECUTE, s.w.size() * 4)) {
++        fprintf(lg, "[reclaimcap] FATAL: cannot restore r-x on the text padding\n"); fflush(lg);
++        return Result::Fatal;
++    }
++    if (!stubsWritten) return refuse("cannot write the stubs");
 +    const uint32_t blReset = blWord(rt + L.resetCall, resetStub);
 +    const uint32_t bCap = 0x14000000U | (static_cast<uint32_t>((static_cast<int64_t>(capStub) - static_cast<int64_t>(rt + L.backEdge)) >> 2) & 0x03ffffffU);
 +    const uint32_t blGrow = blWord(rt + L.growCall, growStub);
@@ -434,34 +475,59 @@ index 0000000..c66ab04
 +    for (; prot < 3; prot++)
 +        if (!acc.protect(rt + sites[prot].off, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, 4)) break;
 +    if (prot < 3) {
-+        for (int i = 0; i < prot; i++) acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
++        bool rxBack = true;
++        for (int i = 0; i < prot; i++) rxBack &= acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4) ||
++                                                   acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
++        if (!rxBack) { fprintf(lg, "[reclaimcap] FATAL: cannot restore r-x on a runtime page\n"); fflush(lg); return Result::Fatal; }
 +        return refuse("cannot make a site writable (nothing patched)");
 +    }
 +    int wrote = 0;
 +    for (; wrote < 3; wrote++)
 +        if (!acc.write(rt + sites[wrote].off, &sites[wrote].word, 4)) break;
++    bool rolledBack = true;
 +    if (wrote < 3)
-+        for (int i = wrote - 1; i >= 0; i--) acc.write(rt + sites[i].off, &sites[i].orig, 4);
-+    for (int i = 0; i < 3; i++) acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
-+    if (wrote < 3) return refuse("cannot write a site (rolled back to stock)");
++        for (int i = wrote - 1; i >= 0; i--) rolledBack &= acc.write(rt + sites[i].off, &sites[i].orig, 4);
++    // Every site page must be executable again before the tracee runs. One retry per site; if a page stays
++    // non-executable the process cannot continue safely, so the caller is told (Result::Fatal) instead of "installed".
++    bool rx = true;
++    for (int i = 0; i < 3; i++)
++        if (!acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4) &&
++            !acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4)) rx = false;
++    if (!rx) {
++        // Roll back to stock (writable again, original words), then try r-x once more on every site. Only if a page
++        // still can't be made executable is it Fatal.
++        for (int i = 2; i >= 0; i--)
++            if (acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY, 4)) acc.write(rt + sites[i].off, &sites[i].orig, 4);
++        bool rxAgain = true;
++        for (int i = 0; i < 3; i++) rxAgain &= acc.protect(rt + sites[i].off, VM_PROT_READ | VM_PROT_EXECUTE, 4);
++        if (rxAgain) return refuse("cannot restore r-x on a site (rolled back to stock)");
++        fprintf(lg, "[reclaimcap] FATAL: cannot restore r-x on a patched runtime page\n"); fflush(lg);
++        return Result::Fatal;
++    }
++    if (wrote < 3) return refuse(rolledBack ? "cannot write a site (rolled back to stock)" : "cannot write a site and the rollback failed");
++    if (icache) {   // what the tracee must i-cache-invalidate (cooperative mode): the three sites and the stubs
++        uint64_t lo = std::min({L.growCall, L.resetCall, L.backEdge, padAt}), hi = std::max({L.growCall, L.resetCall, L.backEdge}) + 4;
++        hi = std::max(hi, padAt + s.w.size() * 4);
++        icache->addr = rt + lo; icache->len = hi - lo;
++    }
 +    rc.on = true; rc.rt = rt; rc.st = rt + L.stateLo; rc.K = K; rc.budgetUs = budgetUs;
 +    fprintf(lg, "[reclaimcap] installed: K=%llu budget_us=%llu, stubs 0x%llx (%zu bytes)\n", (unsigned long long)K, (unsigned long long)budgetUs,
 +            (unsigned long long)(rt + kOffLwPad2), s.w.size() * 4);
 +    fflush(lg);
-+    return true;
++    return Result::Installed;
 +}
 +
 +}  // namespace
 +
-+bool install(const Access& acc, uint64_t rt) { return installImpl(acc, rt); }
++Result install(const Access& acc, uint64_t rt, const char* blocked, IcacheRange* icache) { return installImpl(acc, rt, blocked, icache); }
 +
 +}  // namespace reclaim_cap
 diff --git a/rosetta_loader/src/reclaim_cap.hpp b/rosetta_loader/src/reclaim_cap.hpp
 new file mode 100644
-index 0000000..56f5253
+index 0000000..4e9b5c2
 --- /dev/null
 +++ b/rosetta_loader/src/reclaim_cap.hpp
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,18 @@
 +#pragma once
 +#include <mach/mach.h>
 +#include <cstddef>
@@ -474,14 +540,18 @@ index 0000000..56f5253
 +    std::function<bool(uint64_t, const void*, size_t)> write;
 +    std::function<bool(uint64_t, vm_prot_t, size_t)> protect;
 +};
-+bool install(const Access& acc, uint64_t runtimeBase);
++enum class Result { Off, Refused, Installed, Fatal };   // Fatal: a runtime page could not be made r-x again
++struct IcacheRange { uint64_t addr = 0, len = 0; };     // code the tracee must i-cache-invalidate after Installed
++// blocked != nullptr: refuse with that reason (logged) when the feature is requested. icache (optional) receives the
++// patched range on Installed.
++Result install(const Access& acc, uint64_t runtimeBase, const char* blocked = nullptr, IcacheRange* icache = nullptr);
 +}
 diff --git a/rosetta_loader/src/reclaim_locate.hpp b/rosetta_loader/src/reclaim_locate.hpp
 new file mode 100644
-index 0000000..85cbe9e
+index 0000000..496620e
 --- /dev/null
 +++ b/rosetta_loader/src/reclaim_locate.hpp
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,261 @@
 +// reclaim_locate.hpp — find F54a's patch sites in Rosetta's runtime by structure, not by fixed offsets (2026-11-22).
 +// Pure function over an image view (bytes indexed by VM offset, vmaddr 0 as in /usr/libexec/rosetta/runtime), so the same
 +// code runs in the sidecar (live image read through the task port) and in the offline test tool (file + mutated copies).
@@ -583,6 +653,36 @@ index 0000000..85cbe9e
 +    static bool isSubSpImm(uint32_t x) { return (x & 0xFFC003FFU) == 0xD10003FFU; }
 +    static bool isStpPre(uint32_t x) { return (x & 0xFFC003E0U) == 0xA98003E0U; }   // stp x?, x?, [sp, #-n]!
 +    static bool isRet(uint32_t x) { return x == 0xD65F03C0U; }
++    // Does x name x16/x17 (w16/w17) in any general-register operand? Decoded by encoding class so immediates and
++    // branch offsets don't count; when a class is unclear every plausible register field counts (fail-closed).
++    static bool namesIp(uint32_t x) {
++        auto ip = [](uint32_t r) { return r == 16 || r == 17; };
++        const uint32_t r0 = x & 31, r5 = (x >> 5) & 31, r10 = (x >> 10) & 31, r16 = (x >> 16) & 31;
++        const uint32_t op0 = (x >> 25) & 0xF;
++        if ((op0 & 0xE) == 0x8) {                                    // data processing, immediate
++            if (((x >> 23) & 0x3F) == 0x25 || ((x >> 24) & 0x1F) == 0x10) return ip(r0);   // movz/movn/movk, adr/adrp
++            return ip(r0) || ip(r5);
++        }
++        if ((op0 & 0xE) == 0xA) {                                    // branches, exception, system
++            if ((x & 0x7C000000U) == 0x14000000U) return false;     // b / bl (imm26)
++            if ((x & 0xFE000000U) == 0x54000000U) return false;     // b.cond
++            if ((x & 0x7E000000U) == 0x34000000U || (x & 0x7E000000U) == 0x36000000U) return ip(r0);  // cbz/cbnz/tbz/tbnz
++            if ((x & 0xFE000000U) == 0xD6000000U) return ip(r5) || ip(r0);   // br/blr/ret (+ pac forms)
++            if ((x & 0xFFC00000U) == 0xD5000000U) return ip(r0);     // system (mrs/msr/hint/barriers)
++            return ip(r0) || ip(r5);                                 // svc/brk etc.: be conservative
++        }
++        if ((op0 & 0x5) == 0x4) {                                    // loads and stores
++            if (((x >> 24) & 0x3B) == 0x39) return ip(r0) || ip(r5);                 // unsigned-offset form
++            if (((x >> 27) & 0x7) == 0x5) return ip(r0) || ip(r5) || ip(r10);        // pairs
++            if (((x >> 24) & 0x3B) == 0x18) return ip(r0);                           // literal
++            return ip(r0) || ip(r5) || ip(r16);                                      // reg offset, atomics, exclusives
++        }
++        if ((op0 & 0x7) == 0x5) {                                    // data processing, register
++            if (((x >> 24) & 0x1F) == 0x1B) return ip(r0) || ip(r5) || ip(r16) || ip(r10);   // 3-source (madd, …)
++            return ip(r0) || ip(r5) || ip(r16);
++        }
++        return ip(r0) || ip(r5) || ip(r16) || ip(r10);               // SIMD/FP and anything else
++    }
 +    static bool isAddW7(uint32_t x, uint32_t r) { return x == (0x11001C00U | (r << 5) | r); }               // add wR, wR, #7
 +    static bool isAndNot7(uint32_t x, uint32_t d, uint32_t n) { return x == (0x121D7000U | (n << 5) | d); }  // and wD, wN, #~7
 +    static bool isCasaW(uint32_t x) { return (x & 0xFFE0FC00U) == 0x88E07C00U; }
@@ -633,6 +733,13 @@ index 0000000..85cbe9e
 +      if (!Dec::isAdrp(e0) || !Dec::isStrX(e1) || Dec::rn(e1) != Dec::rd(e0) || Dec::rd(e1) != xa) return fail("exit does not keep the rest");
 +      s.freeListHead = Dec::adrpTarget(s.exitKeep, e0) + Dec::ldstOffX(e1); }
 +    if (s.freeListHead < im.dataLo || s.freeListHead >= im.dataHi) return fail("free-list head not in __DATA");
++    // 3b) the cap stub (at the back-edge, and on its way to the exit) overwrites x16/x17. Neither the fragment registers
++    //     nor anything else in the loop or the exit block may hold a live value there. Conservative: refuse if any
++    //     register field of any word from the loop head to the end of the exit block names x16/x17 (the 27.2 runtime
++    //     uses neither anywhere in the reclaim function). A false hit only means fail-closed (stock reclaim).
++    if (xa == 16 || xa == 17 || xc == 16 || xc == 17) return fail("loop keeps a fragment in x16/x17 (the stub clobbers them)");
++    for (uint64_t a = s.loopHead; a < s.exitKeep + 0x40; a += 4)
++        if (Dec::namesIp(d.w(a))) return fail("reclaim loop or exit names x16/x17 (the stub clobbers them)");
 +    // 4) reclaim function entry: nearest "sub sp, sp, #imm" above the loop head, preceded by the end of another function
 +    for (uint64_t a = s.loopHead; a >= im.textLo && s.loopHead - a < 0x400; a -= 4)
 +        if (Dec::isSubSpImm(d.w(a))) { s.reclaimFn = a; break; }

@@ -25,6 +25,8 @@ Test machine: Mac Studio M2 Max, macOS 27.2, CrossOver 26.3.0, game build 101.10
 
 Start-up time in the calm pair was 27.0 s and 26.5 s, about the same. The frame rate stays the same. The freezes go.
 
+Upstream pull request: https://github.com/NerRobDog/x87sidecar/pull/1. The patch here matches it, including the safety checks added after review: it refuses to install, or rolls back to stock Rosetta, when the cache flush, the state write or the page permissions can't be confirmed, and on runtime builds whose loop uses registers the stub needs. The measurements above were taken before those checks; the budget logic itself is unchanged.
+
 ## How to apply
 
 Base: x87sidecar commit `c407ddf` (https://github.com/NerRobDog/x87sidecar).
