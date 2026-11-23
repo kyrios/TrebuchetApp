@@ -54,7 +54,13 @@ func prepareForLaunch() -> String? {
 /// The next Launch then prepares the folder for the new version (never while the game is running).
 enum Updates {
     #if SPARKLE
+    #if SPARKLE_DIAG
+    // Local update tests only (build-app.sh SPARKLE_TEST_FEED): every Sparkle decision goes to logs/updates.log.
+    static let diag = UpdateDiag()
+    static let controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: diag, userDriverDelegate: diag)
+    #else
     static let controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    #endif
     static var available: Bool { true }
     /// Creating the controller starts the updater (scheduled checks); never in demo/screenshot builds or command-line modes.
     static func start() { if !Demo.active { _ = controller } }
@@ -65,6 +71,34 @@ enum Updates {
     static func check() {}
     #endif
 }
+
+#if SPARKLE && SPARKLE_DIAG
+final class UpdateDiag: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
+    private func log(_ s: String) {
+        let f = Install.logs.appendingPathComponent("updates.log")
+        try? FileManager.default.createDirectory(at: Install.logs, withIntermediateDirectories: true)
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(s)\n"
+        if let h = try? FileHandle(forWritingTo: f) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
+        else { try? line.write(to: f, atomically: true, encoding: .utf8) }
+    }
+    private func describe(_ e: Error) -> String {
+        let n = e as NSError
+        return "\(n.domain) \(n.code): \(n.localizedDescription) \(n.userInfo[NSUnderlyingErrorKey].map { "underlying: \($0)" } ?? "") \(n.userInfo["SPUNoUpdateFoundReason"].map { "reason \($0)" } ?? "")"
+    }
+    func feedURLString(for updater: SPUUpdater) -> String? { log("feed \(updater.feedURL?.absoluteString ?? "nil"), automatic checks \(updater.automaticallyChecksForUpdates), automatic downloads \(updater.automaticallyDownloadsUpdates)"); return nil }
+    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) { log("appcast loaded: \(appcast.items.count) item(s): \(appcast.items.map { "\($0.versionString) \($0.fileURL?.absoluteString ?? "-")" })") }
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { log("valid update found: \(item.versionString)") }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { log("no update: \(describe(error))") }
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) { log("aborted: \(describe(error))") }
+    func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) { log("download failed: \(describe(error))") }
+    func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) { log("downloaded \(item.versionString)") }
+    func updater(_ updater: SPUUpdater, didExtractUpdate item: SUAppcastItem) { log("extracted \(item.versionString)") }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) { log("will install \(item.versionString)") }
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool { log("will install \(item.versionString) on quit"); return false }
+    func standardUserDriverWillShowModalAlert() { log("Sparkle shows a window to the user (a prompt instead of a silent update)") }
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) { log("showing update \(update.versionString): handled=\(handleShowingUpdate) userInitiated=\(state.userInitiated) stage=\(state.stage.rawValue)") }
+}
+#endif
 
 struct TrebuchetApp: App {
     @StateObject private var fixes = Fixes()

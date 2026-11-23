@@ -37,6 +37,7 @@ if [[ -n $pub ]]; then
     rm "$cache/sparkle.tar.xz"
   fi
   sparkle=(-F "$cache" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -D SPARKLE)
+  [[ -n ${SPARKLE_TEST_FEED:-} ]] && sparkle+=(-D SPARKLE_DIAG)   # update tests log every Sparkle decision
 fi
 swiftc -O -parse-as-library -target arm64-apple-macos14.0 $sparkle \
   -o "$app/Contents/MacOS/AoE2Launcher" "$here"/Sources/*.swift
