@@ -116,6 +116,11 @@ cp "$here/names.conf" "$PREFIX/names.conf"
 find "$PREFIX" -maxdepth 1 -name ".has-*" -delete; [[ -n "${PREBUILT:-}" && -f "$PREBUILT/FEATURES" ]] && for f in $(<"$PREBUILT/FEATURES"); do : > "$PREFIX/.has-${f:l}"; done
 print "ours prefix:defaults.conf $(sha "$PREFIX/defaults.conf")" >> "$PREFIX/MANIFEST"
 chmod +x "$PREFIX/run-aoe2.sh"
+# Gatekeeper: the CrossOver copy is an APFS clone of the player's CrossOver, so it inherits a quarantine flag if that
+# CrossOver was downloaded with a browser; our files copied out of a downloaded Trebuchet carry one too. The copy's seal is
+# broken on purpose (our ntdll replaces CrossOver's), so a quarantined copy is reported as "damaged" on its first start.
+# Only Trebuchet's own folder is cleared; /Applications/CrossOver.app and the bottle are never touched.
+xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true
 print "payload $(payload_id)\ncrossover $have_cx" > "$PREFIX/.prepared"
 step "Ready"
 if [[ -n "${NO_LAUNCHER:-}" ]]; then exit 0; fi
