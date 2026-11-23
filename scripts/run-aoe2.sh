@@ -324,8 +324,13 @@ macho_minos() {
   print 0
 }
 os_num() { local -a p; p=(${(s:.:)1}); print $(( ${p[1]:-0}*10000 + ${p[2]:-0}*100 + ${p[3]:-0} )); }
+# 2.1.3: the text-fix set is also used only on the macOS versions it was tested on (27.0+). On macOS 26.6 the game
+# crashed at start with it (2.1.2, before D3D device creation); its built-in Metal shaders come from a newer Metal
+# toolchain than CrossOver's. Below that: CrossOver's DXMT. Raise or lower TEXTFIX_TESTED_MACOS only with a test.
+TEXTFIX_TESTED_MACOS=270000
 if [[ $textfix == on ]]; then
   tf_min=$(macho_minos "$PREFIX/dxmt-textfix/x86_64-unix/winemetal.so"); os_ver=$(/usr/bin/sw_vers -productVersion 2>/dev/null)
+  (( tf_min && tf_min < TEXTFIX_TESTED_MACOS )) && tf_min=$TEXTFIX_TESTED_MACOS
   if (( tf_min == 0 || $(os_num "${os_ver:-0}") < tf_min )); then
     dxmt_set=dxmt-crossover; textfix=off
     (( tf_min )) && tf_need="macOS $(( tf_min/10000 )).$(( tf_min/100%100 ))" || tf_need="a macOS version that could not be read"
