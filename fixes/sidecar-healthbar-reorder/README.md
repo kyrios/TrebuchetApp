@@ -20,7 +20,7 @@ The answer is the same for every input, but the expensive part now runs only whe
 
 The game's memory keeps its original bytes. x87sidecar only changes what Rosetta's decoder reads, and only while the game's 59 bytes still equal the expected original bytes.
 
-The idea of reordering this check comes from GameToMac's AoE II build, which changes the game's memory. This version changes nothing in the game and works at translation time instead.
+The idea of reordering this check comes from GameToMac.
 
 The folder has two parts:
 

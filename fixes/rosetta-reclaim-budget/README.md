@@ -4,7 +4,7 @@
 
 Rosetta 2 translates x86-64 code into ARM code and keeps the translations in a cache. When a program rewrites code it has already run, the old translations die. Rosetta frees them later, in one batch, every 30 to 40 seconds. During that batch it holds its global translation lock, and every thread that needs a translation waits.
 
-A program that rewrites a lot of code makes a lot of dead translations. Age of Empires II: DE does: its copy protection rewrites code all the time. Each batch freed about 450,000 fragments and held the lock for 210 to 333 ms. The game's main thread waited behind it, and the game froze for a moment every 30 to 40 seconds.
+A program that rewrites a lot of code makes a lot of dead translations. Age of Empires II: DE does: the game rewrites code at run time all the time. Each batch freed about 450,000 fragments and held the lock for 210 to 333 ms. The game's main thread waited behind it, and the game froze for a moment every 30 to 40 seconds.
 
 This patch to x87sidecar gives every reclaim pass a time budget. When the budget runs out, the pass stops, and the next pass continues where it stopped. The total work stays the same; it is spread out in small steps.
 

@@ -50,11 +50,11 @@ Then, before each start, find the check and export the list:
 
 ```sh
 python3 -I mk_rules.py /path/to/AoE2DE_s.exe T13
-# AOE_SUBST_LIST=0x142d6e390:483b0da97d3a01751048c1c11066f7c1ffff7501c3:483b0da97d3a01751048c1c9306685c966907501c3
+# AOE_SUBST_LIST=0x<address>:<original bytes>:<new bytes>
 # RULESET <hash of mk_rules.py>
 ```
 
-Set `AOE_SUBST_LIST` to the printed value for the process x87sidecar starts. If the pattern is not found exactly once, `mk_rules.py` prints a `WARN rule T13: …` line instead, and the program should run without the rule. The example line is for game build 101.103.57257.0; other `/GS` programs give other addresses.
+Set `AOE_SUBST_LIST` to the printed value for the process x87sidecar starts. If the pattern is not found exactly once, `mk_rules.py` prints a `WARN rule T13: …` line instead, and the program should run without the rule. The address and bytes depend on the program and its build.
 
 The substitution runs inside x87sidecar's soft-fault decoder hook, so the hook must be active. For Age of Empires II: DE that means the setup in [`../wine-fast-exception-delivery-aoe2`](../wine-fast-exception-delivery-aoe2).
 
