@@ -10,6 +10,9 @@ set -euo pipefail
 here=${0:A:h}
 OUT=${OUT:-$here/build}
 name=$(sed -n 's/^APP_NAME=//p' "$here/../scripts/names.conf" | head -1); name=${name:-AoE2 DE (Part A)}
+# TEST_BUILD=1: a local test app ("<name> <version> Test", own bundle id and support folder, no migration, no Sparkle).
+# The release signing refuses it (sign-app.sh checks TrebuchetTestBuild).
+[[ -n ${TEST_BUILD:-} ]] && name="$name ${VERSION:-2.1} Test"
 app="$OUT/$name.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -18,6 +21,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 SPARKLE_VERSION=2.10.1
 SPARKLE_SHA256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
 pub=$(tr -d '[:space:]' < "$here/sparkle-public-key.txt" 2>/dev/null || true)
+[[ -n ${TEST_BUILD:-} ]] && pub=""
 sparkle=()
 if [[ -n $pub ]]; then
   cache=${SPARKLE_CACHE:-$here/.sparkle-$SPARKLE_VERSION}
@@ -68,8 +72,12 @@ cat > "$app/Contents/Info.plist" <<'EOF'
 </plist>
 EOF
 bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${bid:-io.github.kyrios.trebuchet}
+[[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
 ver=${VERSION:-2.1}
 sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
+if [[ -n ${TEST_BUILD:-} ]]; then
+  /usr/libexec/PlistBuddy -c "Add :TrebuchetTestBuild bool true" -c "Add :TrebuchetSupportDir string $name" "$app/Contents/Info.plist"
+fi
 if [[ -n $pub ]]; then
   pb=/usr/libexec/PlistBuddy; plist="$app/Contents/Info.plist"
   # SPARKLE_TEST_FEED (local update tests only): a file:// feed. Such a build is marked TrebuchetTestFeed, and the

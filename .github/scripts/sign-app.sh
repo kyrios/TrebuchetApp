@@ -19,6 +19,7 @@ if [[ $IN == *.zip ]]; then ditto -x -k "$IN" "$W"; else ditto "$IN" "$W/${IN:t}
 A=$(print -l "$W"/*.app(N) | head -1); [[ -d $A ]] || { echo "no app in $IN"; exit 1; }
 T=$A/Contents/Resources/Trebuchet; B=$T/bin
 [[ -f $T/MANIFEST && -d $B ]] || { echo "the app carries no payload ($T)"; exit 1; }
+/usr/libexec/PlistBuddy -c 'Print :TrebuchetTestBuild' "$A/Contents/Info.plist" >/dev/null 2>&1 && { echo "this is a TEST_BUILD app, not a release"; exit 1; }
 # A release never carries a test update feed: Sparkle apps must point at the GitHub Pages feed, with no test marker.
 if [[ -d $A/Contents/Frameworks/Sparkle.framework ]]; then
   feed=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$A/Contents/Info.plist" 2>/dev/null || true)

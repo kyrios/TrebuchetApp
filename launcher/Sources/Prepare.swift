@@ -114,7 +114,7 @@ enum Migration {
     }
     /// Only for the app's own folder; a scratch -supportDir migrates only when the test names its legacy copies.
     static var enabled: Bool {
-        guard Install.managesPrefix else { return false }
+        guard Install.managesPrefix, !Install.isTestBuild else { return false }
         if Install.argument("supportDir") != nil { return Install.argument("legacyDir") != nil }
         return true
     }

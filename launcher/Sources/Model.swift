@@ -30,9 +30,15 @@ enum Install {
     static var prefix: URL {
         if let p = fixedPrefix { return p }
         if let s = argument("supportDir") { return URL(fileURLWithPath: s) }
-        if payload != nil { return home.appendingPathComponent("Library/Application Support/Trebuchet") }
+        if payload != nil {
+            // A test build (build-app.sh TEST_BUILD=1) has its own folder, so it never touches a release install.
+            let name = (Bundle.main.object(forInfoDictionaryKey: "TrebuchetSupportDir") as? String) ?? "Trebuchet"
+            return home.appendingPathComponent("Library/Application Support/\(name)")
+        }
         return home.appendingPathComponent("Library/Application Support/aoe2-mac-softfault")
     }
+    /// A local test build (TEST_BUILD=1): own name, bundle id and folder; no migration, no updates.
+    static var isTestBuild: Bool { Bundle.main.object(forInfoDictionaryKey: "TrebuchetTestBuild") as? Bool ?? false }
     /// True when this app prepares the folder itself from its payload (no installer).
     static var managesPrefix: Bool { payload != nil && fixedPrefix == nil }
     static var script: URL { prefix.appendingPathComponent("run-aoe2.sh") }
