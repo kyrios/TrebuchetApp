@@ -36,6 +36,8 @@ while read -r kind rel hash; do
   [[ "$(shasum -a 256 "$B/$rel" | cut -d' ' -f1)" == "$hash" ]] || { echo "payload differs from its MANIFEST: $rel"; exit 1; }
 done < $T/MANIFEST
 echo "payload matches its MANIFEST"
+# 1b. Release gate: no offline-diagnostic code in any shipped binary (the payload, the app, Sparkle).
+zsh "$here/audit-diagnostics.sh" "$A"
 
 # 2. Inner code first: our Mach-O files in the payload, then Sparkle (if embedded), then the app.
 for f in $B/x87sidecar $B/ntdll.so $B/win32u.so $B/dxmt/x86_64-unix/winemetal.so; do [[ -f $f ]] && sign "$f"; done

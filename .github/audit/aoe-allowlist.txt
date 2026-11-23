@@ -1,0 +1,44 @@
+# Every aoe_/AOE_/AOE2_ name a shipped binary may contain (reviewed). audit-diagnostics.sh fails on any other one.
+# Add a name only with a review note: what it is and why it ships. Offline-diagnostic switches never go here.
+# ntdll.so (Part A, Fast Clock)
+AOE2_SOFTFAULT
+AOE2_FASTQPC
+AOE_SOFTFAULT_PC
+AOE_SOFTFAULT_END
+AOE_SOFTFAULT_TARGET
+AOE_SOFTFAULT_TARGET1
+aoe_softfault1
+aoe_softfault2
+aoe_exec_sidecar
+aoe_fastqpc_query
+# ntdll.dll (soft-fault dispatch, Fast Clock)
+aoe_exception_context
+aoe_soft_dispatch
+aoe_fastqpc
+aoe_fastqpc_state
+# x87sidecar (reorder/T13 substitutions, F54a reclaim cap; *_TEST_MUTATE and SUBST_COUNT are the equivalence-test hooks
+# the app always clears, accepted at the v2.0 audit)
+AOE_SUBST_PC
+AOE_SUBST_ORIG
+AOE_SUBST_NEW
+AOE_SUBST_LIST
+AOE_SUBST_COUNT
+AOE_RECLAIM_CAP
+AOE_RECLAIM_BUDGET_US
+AOE_RECLAIM_LOG
+AOE_RECLAIM_TEST_MUTATE
+# Trebuchet app (environment it sets or clears)
+AOE2_ARGS
+AOE2_BACKEND
+AOE2_BOTTLE
+AOE2_NO_F54A
+AOE2_NO_REORDER
+AOE_HUD
+# win32u.so T4 (R1.2; opt-in, default off)
+AOE2_FAST_CARET
+AOE2_FAST_SETCURSOR
+AOE2_FAST_KMTMEM
+aoe_caret_denied
+aoe_fast_caret_on
+aoe_fast_setcursor_on
+aoe_fast_kmtmem_on
