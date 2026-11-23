@@ -7,9 +7,9 @@
 # Nothing in /Applications/CrossOver.app or in your bottle is changed.
 set -euo pipefail
 REPO=kyrios/TrebuchetApp
-TAG=v2.0
+TAG=v2.0.1
 ASSET=aoe2-mac-softfault-$TAG.tar.gz
-SHA256=dbe51f0fe492c193cdb7bcb7d40c18bea1e753b07608b319e3e6e280a037b340
+SHA256=356546f79edae0b79905da76e7c1e1e94df601f3c4deaa3ef547e8c58fadf3ae
 CX_VERSION=26.3.0.39832
 CX_APP=${CX_APP:-/Applications/CrossOver.app}
 
