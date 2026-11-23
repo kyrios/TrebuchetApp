@@ -17,6 +17,8 @@ enum Entry {
             print("mode=\(fixes.plain ? "stock" : "soft")")
             return
         }
+        // --captureage-status: none | withFixes | outside (read-only; for the CaptureAge detection test)
+        if a.contains("--captureage-status") { print(CaptureAge.status()); return }
         // --prepare: only the 2.1 first-launch work (move a 2.0 install aside, make the CrossOver copy); starts no game
         if a.contains("--prepare") {
             let r = prepareForLaunch()

@@ -69,6 +69,31 @@ struct MainView: View {
             .disabled(runner.state.blocks)
             .accessibilityHint(Text("Starts Age of Empires II in CrossOver"))
 
+            if CaptureAge.installed(bottle: fixes.effectiveBottle) {
+                Button { runner.launch(fixes, target: .captureAge) } label: {
+                    Label(Names.text("UI_LAUNCH_CAPTUREAGE", "Launch CaptureAge"), systemImage: "eye")
+                        .frame(minWidth: 260)
+                }
+                .controlSize(.large)
+                .disabled(runner.state.blocks || runner.captureAge != .none)
+                .padding(.top, Space.s)
+                .accessibilityHint(Text("Starts CaptureAge with Trebuchet's fixes. Games it opens get the fixes too."))
+            }
+            if runner.captureAge == .outside {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Names.text("UI_CA_OUTSIDE", "CaptureAge was started outside Trebuchet. Games it opens won't have the fixes."))
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Button(Names.text("UI_CA_RESTART", "Restart CaptureAge with fixes")) { runner.restartCaptureAge(fixes) }
+                            .buttonStyle(.link).font(.callout)
+                            .disabled(runner.state.blocks)
+                    }
+                }
+                .padding(.top, Space.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: Space.m) {
                 Button(Names.text("UI_SETTINGS", "Settings…")) { openSettings() }
                 Text("·").foregroundStyle(.tertiary).accessibilityHidden(true)
@@ -93,14 +118,14 @@ struct MainView: View {
         .padding(.top, Space.l)
         .padding(.bottom, Space.l)
         .frame(width: 440)
-        .onAppear { runner.refreshPreflight(fixes) }
+        .onAppear { runner.refreshPreflight(fixes); runner.watchCaptureAge() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in runner.refreshPreflight(fixes) }
     }
 
     private var launchTitle: String {
         switch runner.state {
         case .launching, .preparing: return Names.text("UI_LAUNCHING", "Starting…")
-        case .running: return Names.text("UI_RUNNING_BUTTON", "Running")
+        case .running, .captureAgeRunning: return Names.text("UI_RUNNING_BUTTON", "Running")
         default: return Names.text("UI_LAUNCH", "Launch")
         }
     }
@@ -141,7 +166,7 @@ struct StatusCard: View {
         switch state {
         case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .launching, .preparing: ProgressView().controlSize(.small).frame(height: 22)
-        case .running: Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet)
+        case .running, .captureAgeRunning: Image(systemName: "play.circle.fill").foregroundStyle(Color.trebuchet)
         case .fixOff, .fallback, .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .steamOffline: Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
         case .alreadyRunning: Image(systemName: "info.circle.fill").foregroundStyle(Color.trebuchet)
@@ -165,6 +190,7 @@ struct StatusCard: View {
         case .preparing: return Names.text("UI_PREPARING_TITLE", "Getting ready")
         case .notInApplications: return Names.text("UI_MOVE_TITLE", "Move Trebuchet to Applications")
         case .running: return Names.text("UI_RUNNING", "Age of Empires II is running")
+        case .captureAgeRunning: return Names.text("UI_CA_RUNNING", "CaptureAge is running")
         case .fixOff: return Names.text("UI_FIXOFF", "One fix is off for this start")
         case .fallback: return Names.text("UI_FALLBACK", "Started without fixes")
         case .steamOffline: return Names.text("UI_STEAMOFFLINE", "Steam is offline")
@@ -182,6 +208,8 @@ struct StatusCard: View {
         case .launching(let l), .preparing(let l): return l
         case .notInApplications: return Names.text("UI_MOVE_DETAIL", "Drag Trebuchet from this window into your Applications folder, then open it from there.")
         case .running(let plain): return plain ? Names.text("UI_RUNNING_PLAIN", "Without fixes, like Steam's Play button.") : summary
+        case .captureAgeRunning(let plain): return plain ? Names.text("UI_CA_RUNNING_PLAIN", "Without fixes. Games it opens run like Steam's Play button.")
+                                                          : Names.text("UI_CA_RUNNING_DETAIL", "Games it opens get Trebuchet's fixes.")
         case .fixOff(let l), .steamOffline(let l): return l
         case .fallback(let l): return l.prefix(1).uppercased() + l.dropFirst()
         case .alreadyRunning: return Names.text("UI_ALREADY_DETAIL", "Switch to the game window to play.")

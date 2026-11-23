@@ -8,6 +8,7 @@ enum LaunchState: Equatable {
     case preparing(String)          // first Launch or after an update: making the CrossOver copy (one progress line)
     case launching(String)          // last plain line
     case running(plain: Bool)
+    case captureAgeRunning(plain: Bool)   // run-aoe2.sh captureage started CaptureAge (and waits for it)
     case fixOff(String)             // "<fix> is off: …"
     case fallback(String)           // "Part A not used: …"
     case steamOffline(String)
@@ -28,7 +29,7 @@ enum LaunchState: Equatable {
     /// States that block the Launch button.
     var blocks: Bool {
         switch self {
-        case .preparing, .launching, .running, .noCrossOver, .notInstalled, .noBottle, .notInApplications: return true
+        case .preparing, .launching, .running, .captureAgeRunning, .noCrossOver, .notInstalled, .noBottle, .notInApplications: return true
         default: return false
         }
     }
@@ -38,6 +39,25 @@ enum LaunchState: Equatable {
 final class Runner: ObservableObject {
     @Published var state: LaunchState = .ready
     @Published var lines: [String] = []
+    /// CaptureAge seen in the process list (read-only, refreshed every 5 s while the app is open).
+    @Published var captureAge: CaptureAge.Status = .none
+    private var caTimer: Timer?
+
+    func refreshCaptureAge() {
+        Task.detached {
+            let s = CaptureAge.status()
+            await MainActor.run { if self.captureAge != s { self.captureAge = s } }
+        }
+    }
+    func watchCaptureAge() {
+        guard caTimer == nil else { return }
+        refreshCaptureAge()
+        caTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshCaptureAge() }
+        }
+    }
+    /// "Restart with fixes": run-aoe2.sh closes CaptureAge's processes only (anchored pattern) and starts it in the copy.
+    func restartCaptureAge(_ fixes: Fixes) { launch(fixes, target: .captureAge, extraArgs: ["--restart"]) }
     private var process: Process?
     private var sawMode = false
 
@@ -45,7 +65,7 @@ final class Runner: ObservableObject {
     func refreshPreflight(_ fixes: Fixes) {
         if let d = Demo.state { state = d; return }
         switch state {
-        case .preparing, .launching, .running: return
+        case .preparing, .launching, .running, .captureAgeRunning: return
         default: break
         }
         if Install.managesPrefix && Install.runsFromDiskImageOrTranslocated { state = .notInApplications }
@@ -61,18 +81,29 @@ final class Runner: ObservableObject {
         env.merge(fixes.environment()) { _, new in new }
         return env
     }
-    nonisolated static func makeProcess(_ fixes: Fixes, forceStock: Bool = false) -> Process {
+    /// What a start runs: the game (soft/stock) or CaptureAge (run-aoe2.sh captureage; it falls back to a stock CaptureAge
+    /// with its graphics flag by itself when the fixes can't be used).
+    enum Target { case game, captureAge }
+
+    nonisolated static func makeProcess(_ fixes: Fixes, forceStock: Bool = false, target: Target = .game, extraArgs: [String] = []) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = [Install.script.path, (fixes.plain || forceStock) ? "stock" : "soft"]
+        let mode: String
+        switch target {
+        case .game: mode = (fixes.plain || forceStock) ? "stock" : "soft"
+        case .captureAge: mode = (fixes.plain || forceStock) ? "captureage-stock" : "captureage"
+        }
+        p.arguments = [Install.script.path, mode] + extraArgs
         p.environment = launchEnvironment(fixes)
         return p
     }
 
-    /// Launch: first (2.1) move a 2.0 install aside and prepare the CrossOver copy if needed, then start the game.
-    func launch(_ fixes: Fixes) {
+    /// Launch: first (2.1) move a 2.0 install aside and prepare the CrossOver copy if needed, then start the game
+    /// (or CaptureAge, which starts the game itself when the player opens a replay, in the same runtime).
+    func launch(_ fixes: Fixes, target: Target = .game, extraArgs: [String] = []) {
         // Demo builds (screenshots) never start anything.
         guard Demo.state == nil, !state.blocks else { return }
+        self.target = target; self.extraArgs = extraArgs
         guard Install.managesPrefix, !Install.gameRunning else { start(fixes); return }   // running game: run-aoe2.sh says so
         state = .preparing(Names.text("UI_CHECKING_FILES", "Checking Trebuchet's files…"))
         let cx = Install.bundleVersion(Install.crossOverApp).map { $0.split(separator: ".").prefix(2).joined(separator: ".") } ?? ""
@@ -99,8 +130,11 @@ final class Runner: ObservableObject {
         }
     }
 
+    private var target: Target = .game
+    private var extraArgs: [String] = []
+
     private func start(_ fixes: Fixes, forceStock: Bool = false) {
-        let p = Runner.makeProcess(fixes, forceStock: forceStock)
+        let p = Runner.makeProcess(fixes, forceStock: forceStock, target: target, extraArgs: extraArgs)
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -132,6 +166,16 @@ final class Runner: ObservableObject {
             else if l.range(of: #"^.+ is off: "#, options: .regularExpression) != nil { state = .fixOff(l) }
             else if l.hasPrefix("Steam is in offline mode") { state = .steamOffline(l) }
             else if l.hasPrefix("AoE2 is already running") { state = .alreadyRunning }
+            else if l.hasPrefix("CaptureAge not used:") { state = .fallback(String(l.dropFirst("CaptureAge not used:".count)).trimmingCharacters(in: .whitespaces)) }
+            else if l.hasPrefix("CaptureAge is not installed") { state = .failed(l) }
+            else if l.hasPrefix("mode captureage") {
+                sawMode = true
+                switch state {
+                case .fixOff, .fallback, .steamOffline: break
+                default: state = .captureAgeRunning(plain: l.hasPrefix("mode captureage-stock"))
+                }
+                refreshCaptureAge()
+            }
             else if l.hasPrefix("mode soft") || l.hasPrefix("mode stock") {
                 sawMode = true
                 switch state {
@@ -150,6 +194,7 @@ final class Runner: ObservableObject {
         case .fixOff, .fallback, .steamOffline, .alreadyRunning: return   // keep what the player should read
         default: break
         }
+        refreshCaptureAge()
         if code == 0 { state = .ready; refreshPreflight(fixes) }
         else { state = .failed(lines.last(where: { !$0.isEmpty }) ?? "") }
     }
@@ -176,6 +221,7 @@ enum Demo {
         case "main-nobottle": return .noBottle
         case "main-preparing": return .preparing("Preparing Trebuchet for CrossOver 26.3… about 5 s")
         case "main-notinapplications": return .notInApplications
+        case "main-captureage": return .captureAgeRunning(plain: false)
         default: return .ready
         }
     }
