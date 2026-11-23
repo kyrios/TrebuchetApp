@@ -134,6 +134,7 @@ struct TrebuchetApp: App {
         Settings {
             SettingsView().environmentObject(fixes)
         }
+        .windowResizability(.contentMinSize)
     }
 }
 

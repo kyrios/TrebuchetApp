@@ -254,9 +254,19 @@ export WINELOADER="$R/bin/wineloader"
 export AOELAB_SIDECAR_PATH="$PREFIX/x87sidecar"
 export AOE2_SOFTFAULT=1
 # --- stutter fix F54a (on unless AOE2_NO_F54A=1): Rosetta's clean-up in steps of at most 2 ms. ---
-# The sidecar checks the exact Rosetta build itself and keeps the stock clean-up on any other build.
+# Fail-closed (2.1.3): only on a Rosetta runtime it was tested on (sha256 list "rosetta=" in rules.manifest; a rule pack
+# can add builds). The sidecar alone would also install on an untested build when its locator finds the sites (2.1.2 did
+# so on macOS 26.6.2, where the game crashed at start); here any other build keeps Rosetta's stock clean-up.
 f54a=off
-if (( want_f54a )); then export AOE_RECLAIM_BUDGET_US=2000 AOE_RECLAIM_LOG="$PREFIX/logs/reclaim-$stamp.log"; f54a=on; fi
+if (( want_f54a )); then
+  rt_sha=$(/usr/bin/shasum -a 256 /usr/libexec/rosetta/runtime 2>/dev/null | cut -d' ' -f1); f54a_tested=$(rule_field f54a rosetta)
+  if [[ -n "$rt_sha" && -n "$f54a_tested" && ",$f54a_tested," == *",$rt_sha,"* ]]; then
+    export AOE_RECLAIM_BUDGET_US=2000 AOE_RECLAIM_LOG="$PREFIX/logs/reclaim-$stamp.log"; f54a=on
+  else
+    [[ -n "$rt_sha" ]] && rt_id="${rt_sha:0:16}…" || rt_id=unreadable
+    rule_off f54a "not tested on this Rosetta build (runtime $rt_id)"
+  fi
+fi
 # --- faster clock F59 (opt-in: AOE2_FASTQPC=1) ---
 fastqpc=off
 (( want_fastqpc )) && [[ -e "$PREFIX/.has-fastqpc" ]] && { export AOE2_FASTQPC=1; fastqpc=on; }
@@ -324,8 +334,13 @@ macho_minos() {
   print 0
 }
 os_num() { local -a p; p=(${(s:.:)1}); print $(( ${p[1]:-0}*10000 + ${p[2]:-0}*100 + ${p[3]:-0} )); }
+# 2.1.3: the text-fix set is also used only on the macOS versions it was tested on (27.0+). On macOS 26.6 the game
+# crashed at start with it (2.1.2, before D3D device creation); its built-in Metal shaders come from a newer Metal
+# toolchain than CrossOver's. Below that: CrossOver's DXMT. Raise or lower TEXTFIX_TESTED_MACOS only with a test.
+TEXTFIX_TESTED_MACOS=270000
 if [[ $textfix == on ]]; then
   tf_min=$(macho_minos "$PREFIX/dxmt-textfix/x86_64-unix/winemetal.so"); os_ver=$(/usr/bin/sw_vers -productVersion 2>/dev/null)
+  (( tf_min && tf_min < TEXTFIX_TESTED_MACOS )) && tf_min=$TEXTFIX_TESTED_MACOS
   if (( tf_min == 0 || $(os_num "${os_ver:-0}") < tf_min )); then
     dxmt_set=dxmt-crossover; textfix=off
     (( tf_min )) && tf_need="macOS $(( tf_min/10000 )).$(( tf_min/100%100 ))" || tf_need="a macOS version that could not be read"

@@ -216,6 +216,21 @@ struct StatusCard: View {
 
 // MARK: - Settings
 
+/// Settings fits the screen: each tab asks for its natural height, capped to the screen's visible height, and its Form
+/// scrolls when the window is smaller (small MacBook screens, or the user making the window shorter).
+enum SettingsSize {
+    static let minHeight: CGFloat = 320
+    /// Visible screen height minus the window's title bar and tab toolbar.
+    static var maxContentHeight: CGFloat {
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        var visible = screen?.visibleFrame.height ?? 800
+        // Screenshots only: TREBUCHET_DEMO_SCREEN_HEIGHT=<pt> stands in for a smaller screen's visible height.
+        if Demo.active, let h = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_SCREEN_HEIGHT"].flatMap(Double.init) { visible = h }
+        return max(minHeight, visible - 110)
+    }
+    static func ideal(_ natural: CGFloat) -> CGFloat { min(natural, maxContentHeight) }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var fixes: Fixes
     @State private var tab = Demo.settingsTab ?? "fixes"
@@ -225,8 +240,29 @@ struct SettingsView: View {
             GraphicsTab().tabItem { Label(Names.text("UI_TAB_GRAPHICS", "Graphics"), systemImage: "display") }.tag("graphics")
             GameTab().tabItem { Label(Names.text("UI_TAB_GAME", "Game"), systemImage: "gamecontroller") }.tag("game")
         }
-        .frame(width: 600)
+        .frame(minWidth: 600, idealWidth: 600, maxWidth: .infinity)
+        .background(SettingsWindowSizer())
     }
+}
+
+/// SwiftUI opens the Settings window at a default size (900 x 450) instead of the content's ideal size, so the window
+/// is sized here once it exists: 600 pt wide, the Fixes tab's natural height capped to the screen, fully on screen.
+/// Its Forms scroll, so every control is reachable. (User resizing: SwiftUI's Settings window does not take it, even
+/// with .resizable set; a follow-up.)
+struct SettingsWindowSizer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async {
+            guard let w = v.window else { return }
+            w.styleMask.insert(.resizable)
+            w.contentMinSize = NSSize(width: 600, height: SettingsSize.minHeight)
+            // Content size excludes the title bar and tab toolbar; the cap already leaves room for them.
+            w.setContentSize(NSSize(width: 600, height: SettingsSize.ideal(900)))
+            if let s = w.screen ?? NSScreen.main { w.setFrame(w.constrainFrameRect(w.frame, to: s), display: true) }
+        }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 /// One fix: name, marker, measured gain, info popover, and its control.
@@ -373,7 +409,8 @@ struct FixesTab: View {
             Divider()
             StatementFooter()
         }
-        .frame(height: 900)   // fits every release row (incl. Lean Stack Check and Fast Clock) without scrolling
+        // Natural height fits every release row (incl. Lean Stack Check and Fast Clock); smaller screens scroll the Form.
+        .frame(minHeight: SettingsSize.minHeight, idealHeight: SettingsSize.ideal(900), maxHeight: .infinity)
     }
 }
 
@@ -401,7 +438,7 @@ struct GraphicsTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 400)
+        .frame(minHeight: SettingsSize.minHeight, idealHeight: SettingsSize.ideal(400), maxHeight: .infinity)
     }
 }
 
@@ -447,7 +484,7 @@ struct GameTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: Install.managesPrefix ? 470 : 300)
+        .frame(minHeight: SettingsSize.minHeight, idealHeight: SettingsSize.ideal(Install.managesPrefix ? 470 : 300), maxHeight: .infinity)
         .confirmationDialog(Names.text("UI_RESET_CONFIRM", "Reset Trebuchet?"), isPresented: $confirmReset) {
             Button(Names.text("UI_RESET_BUTTON", "Reset"), role: .destructive) {
                 resetting = true
