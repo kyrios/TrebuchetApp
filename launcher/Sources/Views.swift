@@ -82,8 +82,13 @@ struct MainView: View {
             if runner.game == .outside, !runner.state.isGame, !runner.state.isCaptureAge {
                 HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(Names.text("UI_GAME_OUTSIDE", "The game was started without Trebuchet's fixes (through Steam or CaptureAge). Quit it and press Launch to play with the fixes."))
-                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Names.text("UI_GAME_OUTSIDE", "The game was started without Trebuchet's fixes (through Steam or CaptureAge)."))
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Button(Names.text("UI_GAME_RESTART", "Restart the game with fixes")) { runner.restartGame(fixes) }
+                            .buttonStyle(.link).font(.callout)
+                            .disabled(runner.state.blocks)
+                    }
                 }
                 .padding(.top, Space.s)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,7 +228,10 @@ struct StatusCard: View {
         case .notInApplications: return Names.text("UI_MOVE_DETAIL", "Drag Trebuchet from this window into your Applications folder, then open it from there.")
         case .running(let plain): return plain ? Names.text("UI_RUNNING_PLAIN", "Without fixes, like Steam's Play button.") : summary
         case .captureAgeRunning(let plain):
-            if !captureAgeWindow { return Names.text("UI_CA_STARTING", "Starting CaptureAge… its window can take about a minute to appear.") }
+            if !captureAgeWindow {
+                return game == .withFixes ? Names.text("UI_CA_STARTING", "The game runs with the fixes. Starting CaptureAge… its window can take about a minute to appear.")
+                                          : Names.text("UI_CA_STARTING_GAME", "Starting the game with the fixes first, then CaptureAge…")
+            }
             if plain { return Names.text("UI_CA_RUNNING_PLAIN", "Without fixes, like CrossOver's CaptureAge.") }
             switch game {
             case .withFixes: return Names.text("UI_CA_WITH_GAME", "The game runs with the fixes; CaptureAge shows it.")

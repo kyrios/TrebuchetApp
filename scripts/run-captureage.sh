@@ -211,11 +211,15 @@ if [[ "$CA_WATCH_ONLY" != "1" && "$(ca_count)" -gt 0 ]]; then
   ca_kill
 fi
 
+# Owner file: while a "captureage"-mode watchdog runs, the game's watch-only watcher leaves CaptureAge to it.
+CA_OWNER_FILE="${CA_OWNER_FILE:-$(dirname "$CA_LOG")/.captureage-owner}"
+owner_active() { local p; p="$(cat "$CA_OWNER_FILE" 2>/dev/null)"; [[ -n "$p" && "$p" != "$$" ]] && kill -0 "$p" 2>/dev/null; }
 if [[ "$CA_WATCH_ONLY" == "1" ]]; then
   log "watch-only: fixing flagless CaptureAge instances while pid ${CA_WATCH_PID:-?} lives"
   bad=0; relaunches=0
   while [[ -z "$CA_WATCH_PID" ]] || kill -0 "$CA_WATCH_PID" 2>/dev/null; do
     sleep "$POLL"
+    if owner_active; then bad=0; continue; fi
     if [[ "$(ca_count)" -gt 0 ]] && ! ca_has_flag; then bad=$((bad+1)); else bad=0; fi
     (( bad < CONFIRM )) && continue
     (( relaunches >= CA_MAX_RELAUNCH )) && { log "watch-only: $relaunches restarts — giving up"; exit 1; }
@@ -227,6 +231,10 @@ if [[ "$CA_WATCH_ONLY" == "1" ]]; then
   log "watch-only: game ended — stopping"; exit 0
 fi
 
+if [[ "$CA_TREBUCHET" == "1" ]]; then
+  echo $$ > "$CA_OWNER_FILE" 2>/dev/null || true
+  trap '[[ "$(cat "$CA_OWNER_FILE" 2>/dev/null)" == "$$" ]] && rm -f "$CA_OWNER_FILE"' EXIT
+fi
 launch
 
 if [[ "$CA_WATCH" != "1" ]]; then

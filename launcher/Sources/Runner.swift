@@ -68,6 +68,9 @@ final class Runner: ObservableObject {
     /// "Restart with fixes": run-aoe2.sh captureage closes a CaptureAge that is flagless or outside the copy (anchored pattern,
     /// CaptureAge's processes only) and starts it in the copy.
     func restartCaptureAge(_ fixes: Fixes) { launch(fixes, target: .captureAge) }
+    /// "Restart the game with fixes": run-aoe2.sh soft --restart closes a game that runs WITHOUT the fixes (anchored pattern)
+    /// and starts it the Trebuchet way; a game that already has the fixes is left alone.
+    func restartGame(_ fixes: Fixes) { launch(fixes, target: .game, extraArgs: ["--restart"]) }
     private var process: Process?
     private var sawMode = false
 
@@ -176,6 +179,7 @@ final class Runner: ObservableObject {
             else if l.range(of: #"^.+ is off: "#, options: .regularExpression) != nil { state = .fixOff(l) }
             else if l.hasPrefix("Steam is in offline mode") { state = .steamOffline(l) }
             else if l.hasPrefix("AoE2 is already running") { state = .alreadyRunning }
+            else if l.hasPrefix("The game runs without the fixes: closing it") { state = .launching(l) }
             else if l.hasPrefix("CaptureAge not used:") { state = .fallback(String(l.dropFirst("CaptureAge not used:".count)).trimmingCharacters(in: .whitespaces)) }
             else if l.hasPrefix("CaptureAge is not installed") { state = .failed(l) }
             else if l.hasPrefix("mode captureage") {
