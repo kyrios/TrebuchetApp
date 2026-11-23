@@ -315,6 +315,10 @@ if [[ -d "$PREFIX/$dxmt_set" ]] && ! dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set"
     || fallback "could not switch the DXMT files."
   echo "dxmt: copy now uses $dxmt_set" >> "$PREFIX/logs/reports-$stamp.log"
 fi
+# Every start: the copy's seal must be valid (switching the DXMT set above, or a copy prepared by 2.1, breaks it), else
+# macOS may call the copy "damaged". Re-seal ad hoc only when needed (verify ~0.6 s, re-seal ~1 s). Ours only.
+/usr/bin/codesign --verify --deep --strict "$copy_app" >/dev/null 2>&1 || /usr/bin/codesign --force --deep --sign - "$copy_app" >/dev/null 2>&1 \
+  || echo "seal: could not re-seal the CrossOver copy" >> "$PREFIX/logs/reports-$stamp.log"
 # Every start: clear the quarantine flag inside Trebuchet's own folder (idempotent, fast). A copy that 2.1 prepared from a
 # browser-downloaded CrossOver, or files copied out of a downloaded Trebuchet, would otherwise make Gatekeeper call the
 # copy "damaged". Only $PREFIX; never /Applications/CrossOver.app or the bottle. Apple's xattr by path.
