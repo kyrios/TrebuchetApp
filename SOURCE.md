@@ -13,6 +13,8 @@ Our Wine binaries (`ntdll.so`, `ntdll.dll`, and `win32u.so` if shipped) are buil
 4. `crossover-26.3.0-win32u-t4.patch` (only if `win32u.so` ships): caret/cursor answered in the client (T4).
 The library path (rpath) is added after the build: `install_name_tool -add_rpath @loader_path/../../../lib64 ntdll.so`.
 
+**Running your own build:** put your `ntdll.so` (and `ntdll.dll`) into Trebuchet's CrossOver copy, `~/Library/Application Support/Trebuchet/SoftFault-CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/`, and start the game from that copy (or run `run-aoe2.sh` there with your own checks). Trebuchet's Launch button runs only the files it shipped: with a changed file it starts the game the normal CrossOver way and says why.
+
 ## Build
 `scripts/build.sh` (needs the tarball above, llvm-mingw, bison ≥ 3, the Xcode command line tools). The release ntdll is built from exactly tarball + patches 1, 2 and 3 (no extra defines); the faster clock is active only when the launcher sets `AOE2_FASTQPC=1`. See `docs/` and `fixes/release-process` in the project notes.
 

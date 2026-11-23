@@ -11,17 +11,21 @@ Since the game patch of 2 June 2026, AoE2 DE runs very slowly in CrossOver as so
 
 > **Use at your own risk.** Trebuchet changes how the game runs under Rosetta. It is not affiliated with or approved by Microsoft, World's Edge, Forgotten Empires or CodeWeavers, and it comes with no warranty (see `LICENSE`). Online play could, in the worst case, put your account at risk.
 >
-> **Status: tested offline.** Every number below was measured (unless marked as an estimate) by one user on a Mac Studio M2 Max, macOS 27.2, CrossOver 26.3.0, AoE2 DE 101.103.57257.0, in offline replays. Each release passes full-length replays to the end with the game's own out-of-sync detection silent. Multiplayer has not been tested yet; try unranked lobbies first. If you want zero difference from a standard CrossOver setup online, switch the marked fixes off (see the legend below).
+> **Status: tested offline.** Every number below was measured (unless marked as an estimate) by one user on a Mac Studio M2 Max, macOS 27.2, CrossOver 26.3.0, AoE2 DE 101.103.57257.0, in offline replays. Each release passes full-length replays to the end with the game's own out-of-sync detection silent. Multiplayer was tested in one online game by the author; try unranked lobbies first. If you want zero difference from a standard CrossOver setup online, switch the marked fixes off (see the legend below).
 
-## Quick install (prebuilt, about 1 minute)
+## Download
 
-Requirements: Apple Silicon Mac, Rosetta, CrossOver **26.3.0** in `/Applications`, AoE2 DE installed through Steam in a CrossOver bottle.
+**[Download Trebuchet.dmg](https://github.com/kyrios/TrebuchetApp/releases/latest)**, open it and drag Trebuchet to Applications. Then start it and press **Launch**. The first Launch prepares Trebuchet for your CrossOver in a few seconds.
+
+Requirements: Apple Silicon Mac, Rosetta, CrossOver **26.3.0**, AoE2 DE installed through Steam in a CrossOver bottle.
+
+Your CrossOver app and your bottle are never changed: Trebuchet works from its own copy of CrossOver in `~/Library/Application Support/Trebuchet/`. To uninstall, choose **Settings → Game → Reset Trebuchet**, then move Trebuchet to the Trash. Trebuchet updates itself; it checks for a new version once a day.
+
+Prefer the Terminal? This installs the same app:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/kyrios/TrebuchetApp/main/scripts/get.sh | zsh
 ```
-
-Then start **Trebuchet** with Spotlight. Your CrossOver app and your bottle are not changed: the installer makes its own copy of CrossOver in `~/Library/Application Support/aoe2-mac-softfault/`. To remove everything, delete that folder and `~/Applications/Trebuchet.app`. The app is signed with a Developer ID and notarized by Apple.
 
 Other CrossOver versions: build from source (see [Build from source](#build-from-source)).
 
@@ -37,7 +41,7 @@ Other CrossOver versions: build from source (see [Build from source](#build-from
 | Hitch Guard | on | freezes of 0.15–0.23 s every 30–40 s → under 5 ms |
 | Fast Clock | off (optional) | about 0.6 s faster loading (estimate, not measured in the game) |
 | Lean Stack Check ◆ | on | none measured yet |
-| Fast Sync (MSync) | off (optional) | none measured yet |
+| Fast Sync (MSync) | on | big-fight replay: about 4 % more frames (frame counter, 105.7 → 110.0 per second) |
 
 ◆ **Legend:** marked fixes change how a few parts of the game's code run, in ways no standard CrossOver setup does. No game file and no byte of the game's code is changed, and results are proven identical. Tested offline only. If you want zero difference from a standard CrossOver setup online, switch them off. The unmarked fixes work on Wine, DXMT or Rosetta's side.
 
@@ -51,24 +55,13 @@ On a Windows PC a trip costs a few microseconds. On an Apple Silicon Mac, where 
 
 The analysis, at the same level, is in [docs/analysis.md](docs/analysis.md).
 
-## How the main fix works
+## How it works
 
-- **Rosetta side:** [x87sidecar](https://github.com/NerRobDog/x87sidecar) (MIT) hooks into Rosetta's translator **inside the game process only**. When Rosetta translates one of these deliberate trips in the game's code, it turns it into a direct call into Wine instead of a hardware fault.
-- **Wine side** (this patch, about 180 lines in CrossOver 26.3 `ntdll`): that call builds exactly the same exception, with the same registers and processor state, that the slow route would have delivered, and hands it to the game's own handler.
-- **The game's code and memory are never modified.** The protection runs every check exactly as designed; only the route of each trip through the Mac is shorter.
-- **Opt-in:** the patch is active only when the launcher sets it up, and only for `AoE2DE_s.exe`. Otherwise the patched ntdll behaves like stock.
-
-The AoE IV patch this is based on has a second part that runs some of the game's code from a different place in memory and hides that from the game. It is **not** included here, on purpose: it would change what the game's copy protection can see.
-
-### The health-bar speed-up (translation-time reorder)
-
-After Quick Traps each trip was cheap, but it still made Rosetta re-translate code, so health bars stayed expensive. Every health bar on screen calls a small game function about ten times per frame. It answers "is this graphics option on?" with two checks: an expensive protected check first, then a cheap settings read. Rosetta is now shown the same function with the two checks swapped:
-
-- Same result for every input. Nothing is invented: when the setting is on, the original protected check runs and decides.
-- The game's memory keeps its original bytes. The sidecar only changes what Rosetta sees while translating that one small function, and only while the bytes in memory equal the expected original.
-- The protected check still runs from its original place, called the original way. It just runs less often, because the cheap check now answers first in the common case.
-- `scripts/mk_reorder.py` finds the function in the installed game at every start. After a game update it either finds it again or the launcher starts without the speed-up and shows a notification.
-- The idea comes from GameToMac's AoE II build, which applies the same reorder as a write to game memory. This repository applies it at translation time instead.
+- Trebuchet starts the game in its **own copy of CrossOver**, with a patched part of Wine (`ntdll`), a Rosetta helper (x87sidecar) and the Metal renderer DXMT. Your CrossOver app and your bottle stay as they are.
+- **Quick Traps** shortens the route that the game's own checks take through Rosetta and Wine on a Mac. The game's handler gets exactly the same information as on the normal route; only the detour through macOS is gone.
+- **Swift Health Bars** has Rosetta translate one small game function with its two checks in the cheaper order. Every answer is the same; the game's memory keeps its original bytes. After a game update it finds the function again, or switches itself off and tells you.
+- **The game's code and memory are never modified**, and every check in the game runs as designed.
+- Each fix's ⓘ in Settings explains what it does. The full analysis is in [docs/analysis.md](docs/analysis.md), and every patch is in [`patches/`](patches/) with build steps in [SOURCE.md](SOURCE.md).
 
 ## Results
 
@@ -112,20 +105,20 @@ BISON_BIN=/opt/homebrew/opt/bison/bin \
 ./scripts/install.sh
 ```
 
-What `install.sh` sets up:
-- `~/Library/Application Support/aoe2-mac-softfault/SoftFault-CrossOver.app`: an APFS clone of your CrossOver with the patched ntdll. Your `/Applications/CrossOver.app` is not modified.
+What `install.sh` sets up (the app does the same on its first Launch, from the files inside it):
+- `SoftFault-CrossOver.app`: an APFS clone of your CrossOver with the patched ntdll, in the install folder. Your `/Applications/CrossOver.app` is not modified.
 - The sidecar, `run-aoe2.sh` and `mk_reorder.py` in the same folder.
-- `~/Applications/Trebuchet.app`: the app; Spotlight finds it.
+- Run as `./scripts/install.sh`, it also puts the app into `~/Applications`; `launcher/build-app.sh` builds the app on its own.
 
 ## Use
-- Start **Trebuchet** from Spotlight and press **Launch**. It starts the game directly, not through Steam's Play button.
+- Start **Trebuchet** and press **Launch**. It starts the game directly, not through Steam's Play button, and skips the intro video. If the game was started some other way (for example with Steam's Play button), the app tells you it runs without the fixes.
 - **Settings:** switch single fixes on or off, choose the graphics path (DXMT, D3DMetal, wined3d) and the CrossOver bottle, show the Metal HUD. "Use Trebuchet's fixes" off starts the game like Steam's Play button.
-- **Fail-safe:** if CrossOver, the copy, or any of our files is not exactly the version this release was built for, the app starts AoE2 the normal CrossOver way and tells you so; it never changes `/Applications/CrossOver.app` or your bottle. `install.sh` refuses to install on any other CrossOver build (it checks the version and the file hashes listed in `MANIFEST`).
+- **Fail-safe:** if CrossOver, the copy, or any of our files is not exactly the version this release was built for, the app starts AoE2 the normal CrossOver way and tells you so; it never changes `/Applications/CrossOver.app` or your bottle. Trebuchet prepares its copy only for the CrossOver build it was made for (it checks the version and the file hashes listed in `MANIFEST`).
 - If Steam is not running, the app starts it first (in your normal CrossOver) and waits until you are signed in (up to 10 minutes). If Steam is in offline mode you get a notice, because multiplayer will not connect.
 - Game updates: the launcher reads the game's code range at every start, so no rebuild is needed. Version-bound fixes switch themselves off when they don't recognise the new build.
 - CrossOver updates: the patched copy stays on the version it was built from. A new CrossOver needs a new release.
-- Command line (for tests): `run-aoe2.sh soft|stock` in the install folder; `AOE2_NO_<FIX>=1` or `AOE2_<FIX>=1` switch single fixes (`REORDER`, `F54A`, `TEXTFIX`, `T13`, `FASTQPC`, `MSYNC`); `AOE2_DRYRUN=1` runs only the checks.
-- Logs: `~/Library/Application Support/aoe2-mac-softfault/logs`.
+- Command line (for tests): `run-aoe2.sh soft|stock` in `~/Library/Application Support/Trebuchet/`; `AOE2_NO_<FIX>=1` or `AOE2_<FIX>=1` switch single fixes (`REORDER`, `F54A`, `TEXTFIX`, `T13`, `FASTQPC`, `MSYNC`); `AOE2_DRYRUN=1` runs only the checks.
+- Logs: **Show Log** in the app, or `~/Library/Application Support/Trebuchet/logs`.
 
 ## Credits and license
 
