@@ -9,7 +9,7 @@ set -euo pipefail
 REPO=kyrios/TrebuchetApp
 TAG=v2.1
 ASSET=Trebuchet-${TAG#v}.dmg
-SHA256=__SET_AT_RELEASE__
+SHA256=cd7914a663296fd38c808a210ca7c4f69a100a1aed848a06531bae65f9911cd8
 CX_VERSION=26.3.0.39832
 CX_APP=${CX_APP:-/Applications/CrossOver.app}
 
