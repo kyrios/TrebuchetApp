@@ -89,8 +89,8 @@ fi
 if [[ -n $pub ]]; then
   pb=/usr/libexec/PlistBuddy; plist="$app/Contents/Info.plist"
   # SPARKLE_TEST_FEED (local update tests only): a file:// feed. Such a build is marked TrebuchetTestFeed, and the
-  # release signing (sign-app.sh) refuses any app whose feed is not the GitHub Pages one.
-  feed=https://kyrios.github.io/TrebuchetApp/appcast.xml
+  # release signing (sign-app.sh) refuses any app whose feed is not the release feed (trebuchetapp.com, which redirects to the GitHub Pages file).
+  feed=https://trebuchetapp.com/appcast.xml
   if [[ -n ${SPARKLE_TEST_FEED:-} ]]; then feed=$SPARKLE_TEST_FEED; $pb -c "Add :TrebuchetTestFeed bool true" "$plist"; fi
   $pb -c "Add :SUFeedURL string $feed" "$plist"
   $pb -c "Add :SUPublicEDKey string $pub" "$plist"

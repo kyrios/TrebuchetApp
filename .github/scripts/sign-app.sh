@@ -22,10 +22,10 @@ T=$A/Contents/Resources/Trebuchet; B=$T/bin
 /usr/libexec/PlistBuddy -c 'Print :TrebuchetTestBuild' "$A/Contents/Info.plist" >/dev/null 2>&1 && { echo "this is a TEST_BUILD app, not a release"; exit 1; }
 bid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$A/Contents/Info.plist")
 if [[ $TAG == v* && $bid != io.github.kyrios.trebuchet ]]; then echo "release $TAG must carry the bundle id io.github.kyrios.trebuchet, not $bid"; exit 1; fi
-# A release never carries a test update feed: Sparkle apps must point at the GitHub Pages feed, with no test marker.
+# A release never carries a test update feed: Sparkle apps must point at https://trebuchetapp.com/appcast.xml (2.1.2+; it redirects to the GitHub Pages feed), with no test marker.
 if [[ -d $A/Contents/Frameworks/Sparkle.framework ]]; then
   feed=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$A/Contents/Info.plist" 2>/dev/null || true)
-  [[ $feed == https://kyrios.github.io/TrebuchetApp/appcast.xml ]] || { echo "SUFeedURL is '$feed', not the release feed"; exit 1; }
+  [[ $feed == https://trebuchetapp.com/appcast.xml ]] || { echo "SUFeedURL is '$feed', not the release feed"; exit 1; }
   /usr/libexec/PlistBuddy -c 'Print :TrebuchetTestFeed' "$A/Contents/Info.plist" >/dev/null 2>&1 && { echo "test-feed build"; exit 1; }
   [[ -n "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$A/Contents/Info.plist" 2>/dev/null)" ]] || { echo "no SUPublicEDKey"; exit 1; }
 fi
