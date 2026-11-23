@@ -120,7 +120,7 @@ chmod +x "$PREFIX/run-aoe2.sh"
 # CrossOver was downloaded with a browser; our files copied out of a downloaded Trebuchet carry one too. The copy's seal is
 # broken on purpose (our ntdll replaces CrossOver's), so a quarantined copy is reported as "damaged" on its first start.
 # Only Trebuchet's own folder is cleared; /Applications/CrossOver.app and the bottle are never touched.
-xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true
+/usr/bin/xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true   # Apple's xattr by path: a Python xattr earlier in PATH has no -r
 print "payload $(payload_id)\ncrossover $have_cx" > "$PREFIX/.prepared"
 step "Ready"
 if [[ -n "${NO_LAUNCHER:-}" ]]; then exit 0; fi
