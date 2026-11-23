@@ -469,6 +469,18 @@ struct GameTab: View {
                 Text(Names.text("UI_CROSSOVER_FOOTER", "Trebuchet reads CrossOver and never changes it.")).font(.caption).foregroundStyle(.secondary)
             }
             Section {
+                LabeledContent(Names.text("UI_GAMEDIR", "Game folder")) {
+                    HStack {
+                        Text(gameFolderText).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                        Button(Names.text("UI_CHOOSE", "Choose…")) { chooseGameFolder() }
+                        if !fixes.gameDir.isEmpty { Button(Names.text("UI_DEFAULT", "Default")) { fixes.gameDir = "" } }
+                    }
+                }
+            } footer: {
+                Text(gameDirError ?? Names.text("UI_GAMEDIR_FOOTER", "Found in your Steam libraries, also on another disk. Choose a folder only if Trebuchet finds the wrong one."))
+                    .font(.caption).foregroundStyle(gameDirError == nil ? .secondary : Color.red).fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
                 TextField(Names.text("UI_ARGS", "Extra launch options"), text: $fixes.args, prompt: Text("NORECORDING"))
             } footer: {
                 Text(Names.text("UI_ARGS_FOOTER", "For single-player tests only. The intro video is always skipped.")).font(.caption).foregroundStyle(.secondary)
@@ -484,7 +496,7 @@ struct GameTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minHeight: SettingsSize.minHeight, idealHeight: SettingsSize.ideal(Install.managesPrefix ? 470 : 300), maxHeight: .infinity)
+        .frame(minHeight: SettingsSize.minHeight, idealHeight: SettingsSize.ideal(Install.managesPrefix ? 560 : 390), maxHeight: .infinity)
         .confirmationDialog(Names.text("UI_RESET_CONFIRM", "Reset Trebuchet?"), isPresented: $confirmReset) {
             Button(Names.text("UI_RESET_BUTTON", "Reset"), role: .destructive) {
                 resetting = true
@@ -500,6 +512,20 @@ struct GameTab: View {
     @State private var confirmReset = false
     @State private var resetting = false
     @State private var resetError: String?
+    @State private var gameDirError: String?
+
+    private var gameFolderText: String {
+        guard let b = fixes.effectiveBottle, let g = GameLocation.find(bottle: b, override: fixes.gameDir) else { return Names.text("UI_GAMEDIR_NONE", "Not found") }
+        return g.folder
+    }
+    private func chooseGameFolder() {
+        let p = NSOpenPanel()
+        p.canChooseDirectories = true; p.canChooseFiles = false; p.allowsMultipleSelection = false
+        p.message = Names.text("UI_CHOOSE_GAMEDIR", "Choose the AoE2DE folder (it contains AoE2DE_s.exe)")
+        guard p.runModal() == .OK, let u = p.url else { return }
+        if FileManager.default.fileExists(atPath: u.appendingPathComponent("AoE2DE_s.exe").path) { gameDirError = nil; fixes.gameDir = u.path }
+        else { gameDirError = Names.text("UI_GAMEDIR_WRONG", "That folder has no AoE2DE_s.exe. Choose the AoE2DE folder inside steamapps/common.") }
+    }
 
     private func chooseCrossOver() {
         let p = NSOpenPanel()

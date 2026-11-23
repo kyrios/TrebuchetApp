@@ -55,7 +55,7 @@ if [[ -n "${PAYLOAD:-}" ]]; then
   cp -p "$PAYLOAD/MANIFEST" "$t/MANIFEST"
   for f in ntdll.so ntdll.dll x87sidecar FEATURES win32u.so; do [[ -f "$PAYLOAD/bin/$f" ]] && cp -p "$PAYLOAD/bin/$f" "$t/bin/$f"; done
   [[ -d "$PAYLOAD/bin/dxmt" ]] && cp -pR "$PAYLOAD/bin/dxmt" "$t/bin/dxmt"
-  for f in install.sh run-aoe2.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf; do cp -p "$here/../scripts/$f" "$t/scripts/$f"; done
+  for f in install.sh run-aoe2.sh find-game.sh mk_reorder.py mk_rules.py rules.manifest defaults.conf names.conf; do cp -p "$here/../scripts/$f" "$t/scripts/$f"; done
   chmod 755 "$t/bin/x87sidecar" "$t/bin/ntdll.so" "$t"/scripts/*.sh
   find "$t" -name .DS_Store -delete
 fi

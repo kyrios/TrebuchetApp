@@ -177,14 +177,40 @@ enum InstallParts {
     static var localCursor: Bool { has("t4") }
 }
 
-/// CrossOver bottles that contain AoE2 DE (Steam).
+let bottlesRoot = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/CrossOver/Bottles")
+
+/// Where AoE2 DE is installed in a bottle: the same find-game.sh run-aoe2.sh uses (default Steam folder, any other Steam
+/// library in the bottle's libraryfolders.vdf, or the folder chosen in Settings), so the app and the start agree.
+struct GameLocation {
+    let unixExe: String, winExe: String, from: String
+    var folder: String { (unixExe as NSString).deletingLastPathComponent }
+    static func find(bottle: String, override: String = "") -> GameLocation? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = [Install.config("find-game.sh").path, bottlesRoot.appendingPathComponent(bottle).path]
+        var env = ProcessInfo.processInfo.environment; env.removeValue(forKey: "AOE2_GAME_DIR")
+        if !override.isEmpty { env["AOE2_GAME_DIR"] = override }
+        p.environment = env
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+        guard p.terminationStatus == 0, let text = String(data: data, encoding: .utf8) else { return nil }
+        var kv: [String: String] = [:]
+        for line in text.split(separator: "\n") { if let i = line.firstIndex(of: "=") { kv[String(line[..<i])] = String(line[line.index(after: i)...]) } }
+        guard let u = kv["unix"], let w = kv["win"] else { return nil }
+        return GameLocation(unixExe: u, winExe: w, from: kv["from"] ?? "")
+    }
+}
+
+/// CrossOver bottles that contain AoE2 DE (Steam), wherever its Steam library is. With a game folder chosen in Settings
+/// and no bottle found on its own, the bottles that have Steam.
 func gameBottles() -> [String] {
     if ProcessInfo.processInfo.environment["TREBUCHET_DEMO_NOBOTTLE"] == "1" { return [] }
-    let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/CrossOver/Bottles")
-    let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
-    return names.sorted().filter {
-        FileManager.default.fileExists(atPath: root.appendingPathComponent("\($0)/drive_c/Program Files (x86)/Steam/steamapps/common/AoE2DE/AoE2DE_s.exe").path)
-    }
+    let names = ((try? FileManager.default.contentsOfDirectory(atPath: bottlesRoot.path)) ?? []).sorted()
+    let found = names.filter { GameLocation.find(bottle: $0) != nil }
+    if !found.isEmpty { return found }
+    guard let dir = UserDefaults.standard.string(forKey: "gameDir"), !dir.isEmpty else { return [] }
+    return names.filter { FileManager.default.fileExists(atPath: bottlesRoot.appendingPathComponent("\($0)/drive_c/Program Files (x86)/Steam/steam.exe").path) }
 }
 
 enum Backend: String, CaseIterable, Identifiable {
@@ -220,6 +246,7 @@ final class Fixes: ObservableObject {
     @AppStorage("hud") var hud = false
     @AppStorage("args") var args = ""
     @AppStorage("crossOverPath") var crossOverPath = ""
+    @AppStorage("gameDir") var gameDir = ""
 
     let rules: [Rule]
     let pack: String
@@ -274,6 +301,7 @@ final class Fixes: ObservableObject {
         set("T4", t4 && InstallParts.localCursor)
         env["AOE2_BACKEND"] = backend
         env["CX_APP"] = Install.crossOverApp.path
+        if !gameDir.isEmpty { env["AOE2_GAME_DIR"] = gameDir }
         if let b = effectiveBottle { env["AOE2_BOTTLE"] = b }
         if hud { env["AOE_HUD"] = "1" }
         let a = args.trimmingCharacters(in: .whitespaces)
