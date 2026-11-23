@@ -18,6 +18,8 @@ while read -r kind rel hash; do
   [[ "$(shasum -a 256 "$B/$rel" | cut -d' ' -f1)" == "$hash" ]] || { echo "payload differs from its MANIFEST: $rel"; exit 1; }
 done < $D/MANIFEST
 echo "payload matches its MANIFEST"
+# 1b. Release gate: no offline-diagnostic code in any shipped binary (Wine, the sidecar, DXMT, the app).
+zsh "${0:A:h}/audit-diagnostics.sh" "$B"
 
 # 2. Sign: every Mach-O we ship, hardened runtime + secure timestamp; the app last (inner binary first).
 ts=(--timestamp); [[ $ID == - ]] && ts=()
