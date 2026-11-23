@@ -1,0 +1,463 @@
+diff --git a/dlls/ntdll/ntdll.spec b/dlls/ntdll/ntdll.spec
+index f20e42a..4fa557f 100644
+--- a/dlls/ntdll/ntdll.spec
++++ b/dlls/ntdll/ntdll.spec
+@@ -1771,3 +1771,7 @@
+ 
+ # CW HACK 22435
+ @ stdcall __wine_unix_call(int64 long ptr) __wine_unix_call_exported
++
++# AoE2 soft-fault delivery entries (ported from the AoE IV Rosetta patch)
++@ cdecl -norelay -arch=x86_64 __wine_aoe_softfault1()
++@ cdecl -norelay -arch=x86_64 __wine_aoe_softfault2()
+diff --git a/dlls/ntdll/signal_x86_64.c b/dlls/ntdll/signal_x86_64.c
+index a5bbbae..4d9b6f1 100644
+--- a/dlls/ntdll/signal_x86_64.c
++++ b/dlls/ntdll/signal_x86_64.c
+@@ -130,6 +130,84 @@ static NTSTATUS virtual_unwind( ULONG type, DISPATCHER_CONTEXT *dispatch, CONTEX
+ }
+ 
+ 
++/* Opt-in software delivery thunk; installed only in the isolated soft engine. */
++void DECLSPEC_NORETURN aoe_soft_dispatch(ULONG64 *r, BYTE *xs, ULONG fault_length) {
++ BYTE storage[4096];ULONG avx_len=0;CONTEXT *c;CONTEXT_EX *ex;EXCEPTION_RECORD rec={0};ULONG64 mask;void *avx;NTSTATUS status;
++ memset(storage,0,sizeof(storage));
++ status=RtlInitializeExtendedContext2(storage,CONTEXT_ALL|CONTEXT_XSTATE,&ex,7);
++ if(status)RtlRaiseStatus(status);
++ c=RtlLocateLegacyContext(ex,NULL);
++ status=WINE_UNIX_CALL(unix_aoe_exception_context,c);
++ if(status)RtlRaiseStatus(status);
++ c->ContextFlags=CONTEXT_ALL|CONTEXT_XSTATE;
++ c->R15=r[0];c->R14=r[1];c->R13=r[2];c->R12=r[3];c->R11=r[4];c->R10=r[5];c->R9=r[6];c->R8=r[7];c->Rdi=r[8];c->Rsi=r[9];c->Rbp=r[10];c->Rbx=r[11];c->Rdx=r[12];c->Rcx=r[13];c->Rax=r[14];c->EFlags=(DWORD)r[15];c->Rip=r[16]-fault_length;c->Rsp=(ULONG64)(r+17);
++ memcpy(&c->FltSave,xs,512);memcpy(&c->MxCsr,xs+24,4);
++ avx=RtlLocateExtendedFeature(ex,2,&avx_len);if(!avx||avx_len!=256)RtlRaiseStatus(STATUS_INVALID_PARAMETER);
++ memcpy(&mask,xs+512,8);if(mask&4)memcpy(avx,xs+576,256);else memset(avx,0,256);
++ RtlSetExtendedFeaturesMask(ex,7);
++ rec.ExceptionCode=EXCEPTION_ILLEGAL_INSTRUCTION;rec.ExceptionAddress=(void *)c->Rip;
++ status=NtRaiseException(&rec,c,TRUE);RtlRaiseStatus(status);
++}
++
++__ASM_GLOBAL_FUNC( __wine_aoe_softfault1,
++                   "pushfq\n\t"
++                   "push %rax\n\t"
++                   "push %rcx\n\t"
++                   "push %rdx\n\t"
++                   "push %rbx\n\t"
++                   "push %rbp\n\t"
++                   "push %rsi\n\t"
++                   "push %rdi\n\t"
++                   "push %r8\n\t"
++                   "push %r9\n\t"
++                   "push %r10\n\t"
++                   "push %r11\n\t"
++                   "push %r12\n\t"
++                   "push %r13\n\t"
++                   "push %r14\n\t"
++                   "push %r15\n\t"
++                   "mov %rsp,%r12\n\t"
++                   "cld\n\t"
++                   "sub $0x400,%rsp\n\t"
++                   "and $-64,%rsp\n\t"
++                   "mov $7,%eax\n\t"
++                   "xor %edx,%edx\n\t"
++                   "xsave64 64(%rsp)\n\t"
++                   "mov %r12,%rcx\n\t"
++                   "lea 64(%rsp),%rdx\n\t"
++                   "mov $1,%r8d\n\t"
++                   "call " __ASM_NAME("aoe_soft_dispatch") "\n\t"
++                   "ud2" );
++__ASM_GLOBAL_FUNC( __wine_aoe_softfault2,
++                   "pushfq\n\t"
++                   "push %rax\n\t"
++                   "push %rcx\n\t"
++                   "push %rdx\n\t"
++                   "push %rbx\n\t"
++                   "push %rbp\n\t"
++                   "push %rsi\n\t"
++                   "push %rdi\n\t"
++                   "push %r8\n\t"
++                   "push %r9\n\t"
++                   "push %r10\n\t"
++                   "push %r11\n\t"
++                   "push %r12\n\t"
++                   "push %r13\n\t"
++                   "push %r14\n\t"
++                   "push %r15\n\t"
++                   "mov %rsp,%r12\n\t"
++                   "cld\n\t"
++                   "sub $0x400,%rsp\n\t"
++                   "and $-64,%rsp\n\t"
++                   "mov $7,%eax\n\t"
++                   "xor %edx,%edx\n\t"
++                   "xsave64 64(%rsp)\n\t"
++                   "mov %r12,%rcx\n\t"
++                   "lea 64(%rsp),%rdx\n\t"
++                   "mov $2,%r8d\n\t"
++                   "call " __ASM_NAME("aoe_soft_dispatch") "\n\t"
++                   "ud2" );
++
+ /***********************************************************************
+  *		RtlCaptureContext (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/unix/aoe_coop.h b/dlls/ntdll/unix/aoe_coop.h
+new file mode 100644
+index 0000000..74c6fd2
+--- /dev/null
++++ b/dlls/ntdll/unix/aoe_coop.h
+@@ -0,0 +1,111 @@
++// Cooperative-attach handshake shim (tracee side).
++//
++// Compiled into the x86_64 test samples so `x87sidecar --cooperative <sample>`
++// can be exercised without wine or the game. A constructor runs BEFORE main():
++// if X87_SIDECAR_BOOTSTRAP is set and names THIS process, it looks up the
++// sidecar's bootstrap port, hands over the task + this thread's control ports,
++// and blocks until the sidecar replies. This is the exact logic wine's unix
++// loader performs; keeping it in one place (coop_proto.h) avoids drift.
++//
++// If the env var is absent or names another pid (e.g. inherited by an unrelated
++// child), the shim is a no-op, so the same binary still runs in default mode.
++
++#include <libkern/OSCacheControl.h>
++#include <mach/mach.h>
++#include <servers/bootstrap.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "coop_proto.h"
++
++static void x87_coop_handshake(void) {
++    const char* name = getenv(X87_COOP_ENV);
++    if (!name || !*name) {
++        return;  // not running under `--cooperative`
++    }
++
++    // Staleness guard: the service name embeds the intended tracee pid
++    // ("x87sidecar.<pid>"). A grandchild that merely inherited the env var must
++    // NOT try to hand over its own (wrong) task port to a dead/foreign service.
++    const char* dot = strrchr(name, '.');
++    if (!dot || atoi(dot + 1) != (int)getpid()) {
++        return;
++    }
++
++    int verbose = getenv("X87_LOGS") != NULL;
++
++    mach_port_t bootstrap_port = MACH_PORT_NULL;
++    if (task_get_bootstrap_port(mach_task_self(), &bootstrap_port) != KERN_SUCCESS) {
++        return;
++    }
++
++    mach_port_t service = MACH_PORT_NULL;
++    kern_return_t kr = bootstrap_look_up(bootstrap_port, name, &service);
++    if (kr != KERN_SUCCESS) {
++        if (verbose)
++            fprintf(stderr, "coop: bootstrap_look_up(%s) failed 0x%x\n", name, kr);
++        return;
++    }
++
++    // Reply port we block on until the sidecar has finished its setup.
++    mach_port_t reply = MACH_PORT_NULL;
++    mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &reply);
++
++    x87_coop_request_t msg;
++    memset(&msg, 0, sizeof(msg));
++    msg.header.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND, MACH_MSG_TYPE_MAKE_SEND_ONCE) |
++                           MACH_MSGH_BITS_COMPLEX;
++    msg.header.msgh_size = sizeof(msg);
++    msg.header.msgh_remote_port = service;  // destination: sidecar
++    msg.header.msgh_local_port = reply;     // reply right → send-once to sidecar
++    msg.header.msgh_id = X87_COOP_MSGH_ID;
++    msg.body.msgh_descriptor_count = 2;
++    msg.task_port.name = mach_task_self();
++    msg.task_port.disposition = MACH_MSG_TYPE_COPY_SEND;
++    msg.task_port.type = MACH_MSG_PORT_DESCRIPTOR;
++    msg.thread_port.name = mach_thread_self();
++    msg.thread_port.disposition = MACH_MSG_TYPE_COPY_SEND;
++    msg.thread_port.type = MACH_MSG_PORT_DESCRIPTOR;
++
++    kr = mach_msg(&msg.header, MACH_SEND_MSG, sizeof(msg), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE,
++                  MACH_PORT_NULL);
++    if (kr != KERN_SUCCESS) {
++        if (verbose)
++            fprintf(stderr, "coop: handshake send failed 0x%x\n", kr);
++        return;
++    }
++    if (verbose)
++        fprintf(stderr, "coop: handed over task+thread ports; blocking for reply\n");
++
++    // Block until the sidecar has done its install and replies. The receive
++    // buffer needs room for the message header AND the trailer the kernel
++    // appends, else mach_msg returns MACH_RCV_TOO_LARGE.
++    struct {
++        x87_coop_reply_t reply;
++        mach_msg_trailer_t trailer;
++        char slack[64];
++    } rep;
++    memset(&rep, 0, sizeof(rep));
++    kr = mach_msg(&rep.reply.header, MACH_RCV_MSG, 0, sizeof(rep), reply, 30000 /*ms*/,
++                  MACH_PORT_NULL);
++    if (verbose)
++        fprintf(stderr, "coop: handshake reply kr=0x%x; continuing\n", kr);
++
++    // Invalidate our own i-cache for the code the sidecar patched. This runs on
++    // the same thread that will execute translate_insn, and sys_icache_invalidate
++    // issues a broadcast (inner-shareable) IC IVAU, so the patched entry becomes
++    // visible on every core — which a cross-process flush from the sidecar does
++    // not reliably achieve once translate_insn is already hot in the i-cache.
++    if (kr == KERN_SUCCESS) {
++        for (int i = 0; i < 2; i++) {
++            if (rep.reply.icache_len[i] != 0) {
++                sys_icache_invalidate((void*)(uintptr_t)rep.reply.icache_addr[i],
++                                      (size_t)rep.reply.icache_len[i]);
++            }
++        }
++    }
++
++    unsetenv(X87_COOP_ENV);
++}
+diff --git a/dlls/ntdll/unix/coop_proto.h b/dlls/ntdll/unix/coop_proto.h
+new file mode 100644
+index 0000000..bfcf424
+--- /dev/null
++++ b/dlls/ntdll/unix/coop_proto.h
+@@ -0,0 +1,58 @@
++#ifndef X87SIDECAR_COOP_PROTO_H
++#define X87SIDECAR_COOP_PROTO_H
++
++// Wire protocol for the cooperative task-port handshake between a tracee (a
++// binary built with the coop handshake shim, or wine with its handshake hook)
++// and the x87sidecar running in `--cooperative` mode.
++//
++// Rendezvous: the sidecar publishes a Mach receive port in the bootstrap
++// namespace under the name "x87sidecar.<tracee-pid>" (see X87_COOP_ENV). The
++// tracee looks it up and sends its own task + thread control ports, then blocks
++// for a reply. This replaces task_for_pid + ptrace(PT_ATTACHEXC), so the
++// sidecar binary needs no com.apple.security.get-task-allow and is notarizable.
++//
++// This header is plain C so the x86_64 test shim (and wine's unix loader) can
++// include it directly.
++
++#include <mach/mach.h>
++
++// Environment variable carrying the bootstrap service name to the tracee.
++// The sidecar sets it (via setenv) before forking so it survives the execv.
++#define X87_COOP_ENV "X87_SIDECAR_BOOTSTRAP"
++
++// msgh_id of the handshake request (tracee -> sidecar). The reply uses +1.
++#define X87_COOP_MSGH_ID 0x78383721 /* 'x87!' */
++
++// Request: tracee -> sidecar. Complex message with two port descriptors — the
++// tracee's task control port and the handshake thread's control port, both
++// COPY_SEND. msgh_local_port carries a MAKE_SEND_ONCE reply right that the
++// sidecar answers on to unblock the tracee.
++typedef struct {
++    mach_msg_header_t header;
++    mach_msg_body_t body;
++    mach_msg_port_descriptor_t task_port;
++    mach_msg_port_descriptor_t thread_port;
++} x87_coop_request_t;
++
++// Receive buffer on the sidecar side: request + room for the receive trailer.
++typedef struct {
++    x87_coop_request_t req;
++    mach_msg_trailer_t trailer;
++} x87_coop_request_rcv_t;
++
++// Reply: sidecar -> tracee. Its arrival unblocks the tracee. It also carries up
++// to two code ranges the sidecar patched (the translate_insn entry and the
++// injected handler) so the tracee can invalidate its OWN instruction cache for
++// them. This is required in cooperative mode: unlike the default attach (which
++// patches translate_insn before it has ever executed), the cooperative attach
++// happens post-Rosetta-init, when translate_insn is already hot in the i-cache
++// — and a cross-process mach_vm_machine_attribute flush does not reliably make
++// the patch visible. sys_icache_invalidate() on the tracee's own thread (IC
++// IVAU, broadcast inner-shareable) does. len == 0 means "unused slot".
++typedef struct {
++    mach_msg_header_t header;
++    uint64_t icache_addr[2];
++    uint64_t icache_len[2];
++} x87_coop_reply_t;
++
++#endif  // X87SIDECAR_COOP_PROTO_H
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index 494e056..cfe37c0 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -90,6 +90,9 @@
+ #include "winioctl.h"
+ #include "winternl.h"
+ #include "unix_private.h"
++#ifdef __APPLE__
++#include "aoe_coop.h"
++#endif
+ #include "msync.h"
+ #include "wine/list.h"
+ #include "ntsyscalls.h"
+@@ -1369,6 +1372,10 @@ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED;
+ #endif
+ 
+ 
++#ifdef __x86_64__
++extern NTSTATUS aoe_exception_context(void *args);
++#endif
++
+ static const unixlib_entry_t unix_call_funcs[] =
+ {
+     load_so_dll,
+@@ -1381,6 +1388,7 @@ static const unixlib_entry_t unix_call_funcs[] =
+     system_time_precise,
+ #if defined(__x86_64__)
+     pe_module_loaded,
++    aoe_exception_context,
+ #endif
+ };
+ 
+@@ -1416,6 +1424,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
+     system_time_precise,
+ #if defined(__x86_64__)
+     wow64_pe_module_loaded,
++    wow64_pe_module_loaded, /* 64-bit private context operation is unsupported */
+ #endif
+ };
+ 
+@@ -2039,6 +2048,29 @@ static void load_ntdll(void)
+     if (status) fatal_error( "failed to load %s error %x\n", name, status );
+     free( name );
+     load_ntdll_functions( module );
++#if defined(__APPLE__) && defined(__x86_64__)
++    if (getenv("AOELAB_SOFTFAULT_BRIDGE"))
++    {
++        const IMAGE_EXPORT_DIRECTORY *exports = get_module_data_dir(module, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL);
++        void *targets[2] = {(void *)find_named_export(module,exports,"__wine_aoe_softfault1"),(void *)find_named_export(module,exports,"__wine_aoe_softfault2")};
++        void *bridge = (void *)0x180000000ULL;
++        SIZE_T bridge_size = 4096;
++        ULONG old_protect;
++        unsigned int i;
++        if (!targets[0] || !targets[1]) fatal_error("software fault entries missing\n");
++        status = NtAllocateVirtualMemory(GetCurrentProcess(),&bridge,0,&bridge_size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
++        if (status || bridge != (void *)0x180000000ULL) fatal_error("cannot reserve software fault bridge (%x)\n",status);
++        for (i=0;i<2;i++)
++        {
++            BYTE *entry=(BYTE *)bridge+16*i;
++            entry[0]=0xff;entry[1]=0x25;
++            memset(entry+2,0,4);memcpy(entry+6,&targets[i],8);
++            entry[14]=entry[15]=0xcc;
++        }
++        status = NtProtectVirtualMemory(GetCurrentProcess(),&bridge,&bridge_size,PAGE_EXECUTE_READ,&old_protect);
++        if (status) fatal_error("cannot protect software fault bridge (%x)\n",status);
++    }
++#endif
+     if (is_arm64ec()) redirect_ntdll_functions( module );
+ }
+ 
+@@ -2234,6 +2266,9 @@ static void start_main_thread(void)
+     init_thread_stack( teb, 0, 0, 0 );
+     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
+     load_ntdll();
++#ifdef __APPLE__
++    x87_coop_handshake();
++#endif
+     load_wow64_ntdll( main_image_info.Machine );
+     load_apiset_dll();
+ 
+@@ -2610,12 +2645,61 @@ static void check_command_line( int argc, char *argv[] )
+  *
+  * Main entry point called by the wine loader.
+  */
++#if defined(__APPLE__) && defined(__x86_64__)
++/* AoE2 soft-fault delivery (ported from the AoE IV Rosetta patch by Marc Ibrahim /
++ * NerRobDog, LGPL). The game's anti-tamper raises invalid-opcode exceptions as control
++ * flow. With AOE2_SOFTFAULT=1 the x87sidecar makes Rosetta lower those opcodes inside the
++ * game's .text into a call to __wine_aoe_softfault*, which raises the very same
++ * EXCEPTION_ILLEGAL_INSTRUCTION through NtRaiseException without a kernel trap and
++ * without Rosetta's exception server. Game bytes are never modified. */
++static const char *aoe_exe_name(char **argv)
++{
++    const char *name=argv[1],*slash;
++    if ((slash=strrchr(name,'/'))) name=slash+1;
++    if ((slash=strrchr(name,'\\'))) name=slash+1;
++    return name;
++}
++
++static void aoe_exec_sidecar(const char *sidecar, const char *loader, int argc, char **argv)
++{
++    char **args;
++    unsigned int i;
++    args=calloc(argc+3,sizeof(*args));
++    if (!args) fatal_error("cannot allocate software fault launch arguments\n");
++    args[0]=(char *)sidecar;args[1]="--cooperative";args[2]=(char *)loader;
++    for(i=1;i<argc;i++)args[i+2]=argv[i];
++    unsetenv("WINELOADERNOEXEC");
++    execv(sidecar,args);
++    fatal_error("cannot launch software fault translator: %s\n",strerror(errno));
++}
++
++static void aoe_reexec_sidecar(int argc, char **argv)
++{
++    const char *sidecar=getenv("AOELAB_SIDECAR_PATH"),*loader=getenv("WINELOADER");
++    if (!sidecar || sidecar[0]!='/' || !loader || argc<2 || getenv("X87_SIDECAR_BOOTSTRAP")) return;
++    if (getenv("AOE2_SOFTFAULT") && !strcasecmp(aoe_exe_name(argv),"AoE2DE_s.exe"))
++    {
++        /* .text of AoE2DE_s.exe 101.103.57257.0 (sha256 1e415af8...); overridable. */
++        setenv("AOELAB_SOFTFAULT_BRIDGE","1",1);
++        if (!getenv("AOE_SOFTFAULT_PC")) setenv("AOE_SOFTFAULT_PC","0x140001000",1);
++        if (!getenv("AOE_SOFTFAULT_END")) setenv("AOE_SOFTFAULT_END","0x143195ef2",1);
++        setenv("AOE_SOFTFAULT_TARGET1","0x180000000",1);
++        setenv("AOE_SOFTFAULT_TARGET","0x180000010",1);
++        setenv("X87_ALWAYS_NONE","1",1);
++        aoe_exec_sidecar(sidecar,loader,argc,argv);
++    }
++}
++#endif
++
+ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[] )
+ {
+     main_argc = argc;
+     main_argv = argv;
+ 
+     init_paths();
++#if defined(__APPLE__) && defined(__x86_64__)
++    aoe_reexec_sidecar(argc,argv);
++#endif
+     if (!getenv( "WINELOADERNOEXEC" ) || argc <= 1) check_command_line( argc, argv );
+     unsetenv( "WINELOADERNOEXEC" );
+ 
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 91926a8..7891665 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -1215,6 +1215,21 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
+  *              NtGetContextThread  (NTDLL.@)
+  *              ZwGetContextThread  (NTDLL.@)
+  */
++/* Private software-exception context supplement. Use the same per-thread
++ * debug register cache as save_context(), avoiding a server round trip. */
++NTSTATUS aoe_exception_context(void *args)
++{
++    CONTEXT *context = args;
++    struct amd64_thread_data *data = amd64_thread_data();
++    context->SegCs = cs64_sel;
++    context->SegSs = context->SegDs = context->SegEs = context->SegGs = ds64_sel;
++    context->SegFs = data->fs;
++    context->Dr0 = data->dr0; context->Dr1 = data->dr1;
++    context->Dr2 = data->dr2; context->Dr3 = data->dr3;
++    context->Dr6 = data->dr6; context->Dr7 = data->dr7;
++    return STATUS_SUCCESS;
++}
++
+ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
+ {
+     struct syscall_frame *frame = get_syscall_frame();
+diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
+index 3a4a370..5dddcda 100644
+--- a/dlls/ntdll/unixlib.h
++++ b/dlls/ntdll/unixlib.h
+@@ -84,6 +84,7 @@ enum ntdll_unix_funcs
+     unix_system_time_precise,
+ #if defined(__x86_64__)
+     unix_pe_module_loaded,
++    unix_aoe_exception_context,
+ #endif
+ };
+ 

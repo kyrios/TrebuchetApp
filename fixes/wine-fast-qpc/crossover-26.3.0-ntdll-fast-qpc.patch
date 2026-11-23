@@ -1,0 +1,95 @@
+diff --git a/dlls/ntdll/time.c b/dlls/ntdll/time.c
+index 105a6cf..629648e 100644
+--- a/dlls/ntdll/time.c
++++ b/dlls/ntdll/time.c
+@@ -380,8 +380,28 @@ LONGLONG WINAPI RtlGetSystemTimePrecise( void )
+ /******************************************************************************
+  *  RtlQueryPerformanceCounter   [NTDLL.@]
+  */
++#ifdef __x86_64__
++/* AoE2 F59: with AOE2_FASTQPC=1 the unix side hands out its monotonic_counter() leaf, which this function then calls
++ * directly (System V ABI) instead of entering the syscall dispatcher. Same function NtQueryPerformanceCounter uses,
++ * so both paths return the same clock. Off (stock path) unless the env switch is set. */
++static ULONGLONG (__attribute__((sysv_abi)) *aoe_fastqpc)(void);
++static LONG aoe_fastqpc_state;  /* 0 unknown, 1 off, 2 on */
++#endif
++
+ BOOL WINAPI DECLSPEC_HOTPATCH RtlQueryPerformanceCounter( LARGE_INTEGER *counter )
+ {
++#ifdef __x86_64__
++    LONG state = ReadAcquire( &aoe_fastqpc_state );
++    if (state == 2) { counter->QuadPart = aoe_fastqpc(); return TRUE; }
++    if (!state)
++    {
++        void *fn = NULL;
++        if (WINE_UNIX_CALL( unix_aoe_fastqpc, &fn )) fn = NULL;
++        aoe_fastqpc = fn;
++        WriteRelease( &aoe_fastqpc_state, fn ? 2 : 1 );
++        if (fn) { counter->QuadPart = aoe_fastqpc(); return TRUE; }
++    }
++#endif
+     NtQueryPerformanceCounter( counter, NULL );
+     return TRUE;
+ }
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index 494e056..f9b3a38 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -1368,6 +1368,10 @@ static NTSTATUS pe_module_loaded( void *args )
+ static NTSTATUS pe_module_loaded( void *args ) { return STATUS_NOT_IMPLEMENTED; }
+ #endif
+ 
++#ifdef __x86_64__
++extern NTSTATUS aoe_fastqpc_query(void *args);
++#endif
++
+ 
+ static const unixlib_entry_t unix_call_funcs[] =
+ {
+@@ -1381,6 +1385,7 @@ static const unixlib_entry_t unix_call_funcs[] =
+     system_time_precise,
+ #if defined(__x86_64__)
+     pe_module_loaded,
++    aoe_fastqpc_query,
+ #endif
+ };
+ 
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index b05b91b..4674cc9 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -2618,6 +2618,22 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
+ }
+ 
+ 
++#ifdef __x86_64__
++/* AoE2 F59: AOE2_FASTQPC=1 lets PE RtlQueryPerformanceCounter call this leaf directly (System V ABI, on the caller's
++ * stack) instead of entering the syscall dispatcher. It is the same function NtQueryPerformanceCounter uses
++ * (monotonic_counter: mach_continuous_time scaled to 100 ns), so both paths return the same clock. */
++static ULONGLONG aoe_fastqpc(void) { return monotonic_counter(); }
++
++NTSTATUS aoe_fastqpc_query( void *args )
++{
++    const char *e = getenv( "AOE2_FASTQPC" );
++    void *fn = (e && atoi( e ) > 0) ? (void *)aoe_fastqpc : NULL;
++    if (fn) monotonic_counter();  /* initialise the timebase here, not in the first fast call */
++    *(void **)args = fn;
++    return STATUS_SUCCESS;
++}
++#endif
++
+ /******************************************************************************
+  *              NtQueryPerformanceCounter (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/unixlib.h b/dlls/ntdll/unixlib.h
+index 3a4a370..52c579c 100644
+--- a/dlls/ntdll/unixlib.h
++++ b/dlls/ntdll/unixlib.h
+@@ -84,6 +84,7 @@ enum ntdll_unix_funcs
+     unix_system_time_precise,
+ #if defined(__x86_64__)
+     unix_pe_module_loaded,
++    unix_aoe_fastqpc,
+ #endif
+ };
+ 

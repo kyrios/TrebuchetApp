@@ -1,0 +1,37 @@
+Subject: fix(dxmt): copy full rows/slices of texture initial data
+ regardless of SysMemPitch
+
+D3D11_SUBRESOURCE_DATA::SysMemPitch / SysMemSlicePitch are strides, not lengths.
+initWithData clamped the bytes copied per row (2D/array) and per slice (3D) to the
+pitch, so an application passing a pitch smaller than a full row (e.g. AoE2:DE's
+256x1 B8G8R8A8 UI gradient ramps with SysMemPitch = 256) got only part of each row
+uploaded. Copy the full row/slice and keep the pitch as the source stride, as the
+1D path, wined3d and D3DMetal do.
+---
+ src/dxmt/dxmt_resource_initializer.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/dxmt/dxmt_resource_initializer.cpp b/src/dxmt/dxmt_resource_initializer.cpp
+index 8229fe9..ba02309 100644
+--- a/src/dxmt/dxmt_resource_initializer.cpp
++++ b/src/dxmt/dxmt_resource_initializer.cpp
+@@ -152,10 +152,14 @@ ResourceInitializer::initWithData(
+   size_t texel_size = MTLGetTexelSize(texture->pixelFormat());
+   size_t bytes_per_row_needed = texel_size * align(width_sub, block_size) / block_size;
+   size_t bytes_per_row_increment = is_1d_tex ? bytes_per_row_needed : row_pitch;
+-  size_t bytes_per_row_valid = is_1d_tex ? bytes_per_row_needed : std::min(row_pitch, bytes_per_row_needed);
++  // D3D11: SysMemPitch/SysMemSlicePitch are only the stride between rows/slices; every row is still
++  // width * bytes-per-texel long (and every slice bytes_per_image_needed long), even when the application
++  // passes a smaller pitch (common for single-row textures, e.g. Age of Empires II DE's 256x1 UI gradient ramps).
++  // Clamping the copy to the pitch left the rest of the row uninitialised.
++  size_t bytes_per_row_valid = bytes_per_row_needed;
+   size_t bytes_per_image_needed = bytes_per_row_needed * align(height_sub, block_size) / block_size;
+   size_t bytes_per_image_increment = is_3d_tex ? depth_pitch : bytes_per_image_needed;
+-  size_t bytes_per_image_valid = is_3d_tex ? std::min(depth_pitch, bytes_per_image_needed) : bytes_per_image_needed;
++  size_t bytes_per_image_valid = bytes_per_image_needed;
+   size_t total_bytes_needed = bytes_per_image_needed * depth_sub;
+ 
+   std::lock_guard<dxmt::mutex> lock(mutex_);
+-- 
+2.54.0 (Apple Git-157)
+
