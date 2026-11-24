@@ -17,6 +17,12 @@
 # Version-bound fixes (grade C: tied to a macOS/Rosetta build; grade D: tied to a game build) are listed
 # in rules.manifest next to this script. Each one checks its own target and switches itself off on any
 # other version; this launcher then SAYS so (one notification per fix, and logs/reports-*.log).
+#   run-aoe2.sh captureage [--restart] [captureage://...]   CaptureAge (not the game) in the patched copy, with
+#                the same fixes for any game CaptureAge starts; --restart first closes a running CaptureAge.
+#   run-aoe2.sh captureage-stock [captureage://...]          CaptureAge in the normal CrossOver (fixes off).
+#                Both add --in-process-gpu (CaptureAge's window stays blank under CrossOver without it) and keep
+#                watching CaptureAge (run-captureage.sh) until it quits. In "soft" mode a background watcher fixes a
+#                CaptureAge that the game's "Spectate with CA" button starts without that flag (2.2: only with AOE2_CAWATCH=1).
 #   AOE2_ARGS="..."  extra game switches (e.g. SKIPINTRO GAM=x); single player tests only
 #   AOE2_BACKEND=wined3d|bottle|dxvk|d3dmetal|dxmt
 #                graphics backend for the game (default dxmt, measured fastest and smoothest
@@ -34,6 +40,22 @@
 # The .text range of AoE2DE_s.exe is read from the PE header at every start,
 # so game updates need no rebuild.
 setopt no_bg_nice
+# CaptureAge modes: everything below runs as "soft"/"stock"; only the final start differs.
+ca_mode=0; ca_restart=0; ca_url=
+case "$1" in
+  captureage|captureage-stock)
+    ca_mode=1; [[ "$1" == captureage-stock ]] && ca_mode=2
+    for a in "${@:2}"; do case "$a" in --restart) ca_restart=1 ;; captureage://*) ca_url=$a ;; esac; done
+    (( ca_mode == 2 )) && set -- stock || set -- soft ;;
+esac
+# "run-aoe2.sh soft --restart": a game running WITHOUT the fixes (e.g. one that CaptureAge started through Steam) is
+# closed first and started again with them. A game that already runs with the fixes is left alone.
+game_restart=0; [[ "$1" == soft && "$2" == --restart ]] && game_restart=1
+# Every start skips the intro video (the game's own SKIPINTRO option). Under CrossOver the intro never plays: it fails at
+# once, or the game hangs on "Opening video..." with a black window (and in captureage mode CaptureAge then waits for
+# port 4341 forever). Added to the player's own AOE2_ARGS, never replacing them, never twice.
+if [[ " ${AOE2_ARGS:-} " != *" SKIPINTRO "* ]]; then AOE2_ARGS="${AOE2_ARGS:+$AOE2_ARGS }SKIPINTRO"; fi
+ca_game_running=0
 PREFIX=${0:A:h}
 bottle=${AOE2_BOTTLE:-"Age of Empires II Definitive Edition"}
 bottles=${CX_BOTTLE_PATH:-$HOME/Library/Application Support/CrossOver/Bottles}
@@ -48,6 +70,9 @@ fi
 # A game process shows its Windows path as argv[0]: any drive letter, anchored.
 game_re='^[A-Za-z]:.*.AoE2DE_s\.exe( |$)'
 copy_app="$PREFIX/SoftFault-CrossOver.app"
+ca_exe="C:/users/crossover/AppData/Local/Programs/CaptureAge/CaptureAge.exe"
+ca_unix="$bottles/$bottle/drive_c/users/crossover/AppData/Local/Programs/CaptureAge/CaptureAge.exe"
+if (( ca_mode )) && [[ ! -f "$ca_unix" ]]; then echo "CaptureAge is not installed in bottle $bottle."; exit 1; fi
 stock_app=${CX_APP:-/Applications/CrossOver.app}
 mkdir -p "$PREFIX/logs"
 stamp=$(date +%Y%m%d-%H%M%S)
@@ -67,13 +92,9 @@ bundle_version() { [[ -f "$1/Contents/Info.plist" ]] && /usr/libexec/PlistBuddy 
 # game commands below, so the bottle and Steam keep their own backend.
 backend=${AOE2_BACKEND:-dxmt}
 game_cxenv=${CX_ENV:-}
-# Every start skips the intro video (the game's own SKIPINTRO option). Under CrossOver the intro never plays: it fails at
-# once, or the game hangs on "Opening video..." with a black window. Added to the player's own AOE2_ARGS, never replacing
-# them, never twice.
-if [[ " ${AOE2_ARGS:-} " != *" SKIPINTRO "* ]]; then AOE2_ARGS="${AOE2_ARGS:+$AOE2_ARGS }SKIPINTRO"; fi
 # The game is started directly, not through Steam's Play button. Steam sets these two for every game it launches; with
 # them Steamworks treats this start as Steam's and does not ask Steam to start a second copy (it does that when the game
-# folder has no steam_appid.txt, which is the normal case). Only the game gets them, never Steam itself.
+# folder has no steam_appid.txt, which is the normal case). Only the game gets them, never Steam or CaptureAge.
 steam_ids="SteamAppId=813780 SteamGameId=813780"
 case "$backend" in
   bottle) ;;
@@ -82,7 +103,25 @@ case "$backend" in
   *) echo "unknown AOE2_BACKEND '$backend' (wined3d|bottle|dxvk|d3dmetal|dxmt)"; exit 2 ;;
 esac
 
+# Start CaptureAge (+ its watchdog, which keeps this process alive until CaptureAge quits) with wine of $1.
+# Backend (2.2): DXMT when the textfix set is in use: its d3d11.dll (capsurf) answers IDXGISurface for CaptureAge.exe only,
+# which CaptureAge's renderer needs (CreateRenderTarget; stock DXMT returns E_NOINTERFACE and its worker quits). The game's
+# output is byte-identical with that d3d11. Without the textfix set (switched off, or macOS too old) CaptureAge keeps
+# DXVK. ca_backend is set after the textfix gate below; AOE2_CA_BACKEND overrides it (diagnostics).
+# Same CX_ENV as the game (MSync etc.), only the backend replaced.
+ca_backend=dxvk
+ca_env() { local e; e=$(print -r -- "$game_cxenv" | sed -E 's/(^| )(CX_GRAPHICS_BACKEND|WINEDXVK)=[^ ]*//g; s/^ +//'); print -r -- "CX_GRAPHICS_BACKEND=${AOE2_CA_BACKEND:-$ca_backend}${e:+ $e}"; }
+start_captureage() {
+  unset AOE2_FASTQPC AOE2_FAST_CARET AOE2_FAST_SETCURSOR AOE2_FAST_KMTMEM   # F59/T4 are not gated to the game exe
+  CX_ENV="$(ca_env)" CA_CROSSOVER="$1" CA_EXE="$ca_exe" CA_URL="$ca_url" CA_RESTART=$ca_restart CA_RUNTIME="$2" \
+    CA_TREBUCHET=1 CA_NO_DIALOG=1 CA_LOG="$PREFIX/logs/captureage-$stamp.log" exec "$PREFIX/run-captureage.sh"
+}
 run_stock() {
+  if (( ca_mode )); then
+    echo "mode captureage-stock, backend $backend, log: $PREFIX/logs/captureage-$stamp.log"
+    [[ -n "${AOE2_DRYRUN:-}" ]] && return 0
+    start_captureage "$stock_app" ""
+  fi
   local log="$PREFIX/logs/run-stock-$stamp.log"
   echo "mode stock, backend $backend, log: $log"
   [[ -n "${AOE2_DRYRUN:-}" ]] && return 0
@@ -90,13 +129,22 @@ run_stock() {
 }
 
 fallback() {
+  if (( ca_mode )); then notify "CaptureAge not used: $1 Starting it without the fixes."; run_stock; exit $?; fi
   notify "Part A not used: $1 Starting normally."
   run_stock
   exit $?
 }
 
-if pgrep -if "$game_re" >/dev/null; then
-  notify "AoE2 is already running."; exit 1
+if gp=$(pgrep -if "$game_re" | head -1); [[ -n "$gp" ]]; then
+  if (( ca_mode )); then   # CaptureAge attaches to the running game as it is; the game is never closed
+    ca_game_running=1
+    /usr/sbin/lsof -Fn -p "$gp" 2>/dev/null | grep -qF "$copy_app/" || echo "AoE2 runs without the fixes: CaptureAge will show it as it is."
+  elif (( game_restart )) && ! /usr/sbin/lsof -Fn -p "$gp" 2>/dev/null | grep -qF "$copy_app/"; then
+    echo "The game runs without the fixes: closing it and starting it again with them."
+    pkill -TERM -if "$game_re"
+    for i in {1..10}; do pgrep -if "$game_re" >/dev/null || break; sleep 1; done
+    pkill -KILL -if "$game_re" 2>/dev/null; sleep 1
+  else notify "AoE2 is already running."; exit 1; fi
 fi
 [[ -n "${AOE_HUD:-}" ]] && export MTL_HUD_ENABLED=1
 
@@ -357,7 +405,9 @@ if [[ $textfix == on ]]; then
   fi
 fi
 dxmt_same() { [[ "$(cd "$1" 2>/dev/null && find . -type f | LC_ALL=C sort | xargs shasum -a 256 2>/dev/null)" == "$(cd "$2" && find . -type f | LC_ALL=C sort | xargs shasum -a 256)" ]]; }
-echo "mode soft, CrossOver $copy_ver, textfix $textfix, .text $AOE_SOFTFAULT_PC-$AOE_SOFTFAULT_END, reorder $reorder, t13 $t13, f54a $f54a, fastqpc $fastqpc, t4 $t4, msync $msync, backend $backend, log: $log"
+[[ $textfix == on && $backend == dxmt ]] && ca_backend=dxmt
+(( ca_mode )) && echo "captureage: backend ${AOE2_CA_BACKEND:-$ca_backend} (textfix $textfix)" >> "$PREFIX/logs/reports-$stamp.log"
+echo "mode $( (( ca_mode )) && echo captureage || echo soft ), CrossOver $copy_ver, textfix $textfix, .text $AOE_SOFTFAULT_PC-$AOE_SOFTFAULT_END, reorder $reorder, t13 $t13, f54a $f54a, fastqpc $fastqpc, t4 $t4, msync $msync, backend $backend, log: $log"
 [[ -n "${AOE2_DRYRUN:-}" ]] && exit 0
 if [[ -d "$PREFIX/$dxmt_set" ]] && ! dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set"; then
   rm -rf "$R/lib/dxmt" && cp -cR "$PREFIX/$dxmt_set" "$R/lib/dxmt" && dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set" \
@@ -372,8 +422,22 @@ fi
 # browser-downloaded CrossOver, or files copied out of a downloaded Trebuchet, would otherwise make Gatekeeper call the
 # copy "damaged". Only $PREFIX; never /Applications/CrossOver.app or the bottle. Apple's xattr by path.
 /usr/bin/xattr -dr com.apple.quarantine "$PREFIX" 2>/dev/null || true
+# CaptureAge 1.26 starts a game through steam:// (Steam runs in the normal CrossOver: no fixes). So "captureage" starts
+# the game here first, the Trebuchet way; CaptureAge then attaches to it (port 4341) and starts none of its own.
+(( ca_mode && ca_game_running )) && start_captureage "$copy_app" "$copy_app/"
+(( ca_mode )) && echo "captureage: starting the game with the fixes first" >> "$PREFIX/logs/reports-$stamp.log"
 CX_ENV="$steam_ids${game_cxenv:+ $game_cxenv}" "$R/bin/wine" --no-update --bottle "$bottle" "$exe" ${=AOE2_ARGS:-} > "$log" 2>&1 &
 wine_pid=$!
+# The game's "Spectate with CA" button starts CaptureAge without --in-process-gpu (blank window under CrossOver).
+# A background watcher, tied to the game's pid, restarts such a CaptureAge with the flag and the same captureage:// URL.
+# (Not in the wait loop below: that loop only covers the first 90 s.)
+# 2.2: off unless AOE2_CAWATCH=1 (the in-game button is not retested on DXMT yet; planned for 2.3).
+if [[ -f "$ca_unix" && -n "${AOE2_CAWATCH:-}" ]]; then
+  ( unset AOE2_FASTQPC AOE2_FAST_CARET AOE2_FAST_SETCURSOR AOE2_FAST_KMTMEM
+    CX_ENV="$(ca_env)" CA_WATCH_ONLY=1 CA_WATCH_PID=$wine_pid CA_CROSSOVER="$copy_app" CA_EXE="$ca_exe" CA_TREBUCHET=1 \
+      CA_NO_DIALOG=1 CA_REPORT="$PREFIX/logs/reports-$stamp.log" CA_LOG="$PREFIX/logs/captureage-$stamp.log" \
+      nohup "$PREFIX/run-captureage.sh" >/dev/null 2>&1 ) &!
+fi
 
 # Backend self-check (read-only): which backend DLL the game process has mapped.
 # lsof lists the files the process has open; nothing in the game is touched.
@@ -445,8 +509,16 @@ for i in {1..45}; do
     fallback "the patched start failed ($(grep -oE 'cannot [^(]*|software fault entries missing' "$log" | head -1))."
   fi
   kill -0 $wine_pid 2>/dev/null || break
+  # captureage mode: CaptureAge starts as soon as the game's CaptureAge API listens (the main menu), at most after 90 s
+  (( ca_mode )) && /usr/bin/nc -z -G 1 127.0.0.1 4341 >/dev/null 2>&1 && { ca_ready=1; break; }
   sleep 2
 done
+if (( ca_mode )); then
+  if [[ -n "${ca_ready:-}" ]]; then echo "captureage: game started with the fixes"; echo "captureage: game ready (API up), starting CaptureAge" >> "$PREFIX/logs/reports-$stamp.log"
+  elif kill -0 $wine_pid 2>/dev/null; then echo "captureage: game started with the fixes"; echo "captureage: game API not up after 90 s, starting CaptureAge anyway" >> "$PREFIX/logs/reports-$stamp.log"
+  else echo "captureage: the game ended before CaptureAge started"; echo "captureage: the game ended before CaptureAge started; CaptureAge may start one through Steam (without the fixes)" >> "$PREFIX/logs/reports-$stamp.log"; fi
+  start_captureage "$copy_app" "$copy_app/"   # exec: this process becomes CaptureAge's watchdog; the game runs on
+fi
 [[ $f54a == on && -z "${f54a_seen:-}" ]] && echo "rule f54a: no status line in $AOE_RECLAIM_LOG after 90 s (install not confirmed)" >> "$PREFIX/logs/reports-$stamp.log"
 if [[ -n "$backend_dll" && -z "$backend_seen" ]] && kill -0 $wine_pid 2>/dev/null; then
   echo "backend check: $backend ($backend_dll) NOT seen in the first 90 s" >> "$PREFIX/logs/backend-$stamp.log"

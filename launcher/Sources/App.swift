@@ -19,6 +19,8 @@ enum Entry {
         }
         // --game-status: none | withFixes | outside (read-only; is the running game Trebuchet's?)
         if a.contains("--game-status") { print(GameCheck.gameStatus()); return }
+        // --captureage-status: none | withFixes | outside (read-only; for the CaptureAge detection test)
+        if a.contains("--captureage-status") { let s = CaptureAge.status(); print("\(s.status) window=\(s.window) game=\(GameCheck.gameStatus())"); return }
         // --prepare: only the 2.1 first-launch work (move a 2.0 install aside, make the CrossOver copy); starts no game
         if a.contains("--prepare") {
             let r = prepareForLaunch()
