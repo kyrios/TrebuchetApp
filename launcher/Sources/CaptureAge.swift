@@ -25,10 +25,21 @@ enum CaptureAge {
     /// nil = can start; else the reason, shown under the button. Fixes off = CrossOver's own way, always allowed.
     static func blockedReason(_ fixes: Fixes) -> String? {
         if fixes.plain { return nil }
-        let major = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_MACOS"].flatMap(Int.init) ?? ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-        if major < 27 { return Names.text("UI_CA_NEEDS_27", "CaptureAge needs macOS 27 or later.") }
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let os = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_MACOS"].flatMap(Int.init).map { $0 * 10000 } ?? (v.majorVersion * 10000 + v.minorVersion * 100 + v.patchVersion)
+        let need = textfixMinMacOS
+        if os < need { return Names.text("UI_CA_NEEDS_MACOS", "CaptureAge needs macOS \(need / 10000) or later.") }
         if !fixes.textfix || fixes.backendValue != .dxmt { return Names.text("UI_CA_NEEDS_TEXTFIX", "CaptureAge needs Clear Menu Text and the DXMT graphics path (Settings > Fixes).") }
         return nil
+    }
+
+    /// The oldest macOS the text-fix set runs on, as run-aoe2.sh says (TEXTFIX_TESTED_MACOS=270000 → 27.0); the script is
+    /// the one source, so a release that lowers it there needs no app change. 270000 if it can't be read.
+    static var textfixMinMacOS: Int {
+        guard let t = try? String(contentsOf: Install.script, encoding: .utf8),
+              let line = t.split(separator: "\n").first(where: { $0.hasPrefix("TEXTFIX_TESTED_MACOS=") }),
+              let n = Int(line.dropFirst("TEXTFIX_TESTED_MACOS=".count).prefix(while: \.isNumber)) else { return 270000 }
+        return n
     }
 
     /// Wine shows Windows processes with their Windows path as argv[0]; anchored so no shell or tool that merely

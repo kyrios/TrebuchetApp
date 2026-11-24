@@ -394,7 +394,9 @@ os_num() { local -a p; p=(${(s:.:)1}); print $(( ${p[1]:-0}*10000 + ${p[2]:-0}*1
 # 2.1.3: the text-fix set is also used only on the macOS versions it was tested on (27.0+). On macOS 26.6 the game
 # crashed at start with it (2.1.2, before D3D device creation); its built-in Metal shaders come from a newer Metal
 # toolchain than CrossOver's. Below that: CrossOver's DXMT. Raise or lower TEXTFIX_TESTED_MACOS only with a test.
-TEXTFIX_TESTED_MACOS=270000
+# 2.2: the set's Metal shaders are now built for macOS 14 (air64_v26-apple-macosx14.0.0, was ...macosx27.2.0: the 26.6
+# crash). RELEASE GATE: 2.2 ships 140000 only after a passing game + CaptureAge test on macOS 26; otherwise 270000.
+TEXTFIX_TESTED_MACOS=140000
 if [[ $textfix == on ]]; then
   tf_min=$(macho_minos "$PREFIX/dxmt-textfix/x86_64-unix/winemetal.so"); os_ver=$(/usr/bin/sw_vers -productVersion 2>/dev/null)
   (( tf_min && tf_min < TEXTFIX_TESTED_MACOS )) && tf_min=$TEXTFIX_TESTED_MACOS
@@ -410,7 +412,7 @@ dxmt_same() { [[ "$(cd "$1" 2>/dev/null && find . -type f | LC_ALL=C sort | xarg
 # 2.2: CaptureAge is tested on DXMT only (the text-fix set). Without it (macOS before 27, or Clear Menu Text off) the
 # start stops here, before anything runs. AOE2_CA_BACKEND=dxvk|dxmt overrides for tests. captureage-stock is CrossOver's own way.
 if (( ca_mode == 1 )) && [[ -z "${AOE2_CA_BACKEND:-}" && $ca_backend != dxmt ]]; then
-  if [[ -n "${tf_need:-}" ]]; then notify "CaptureAge needs macOS 27 or later (this Mac: macOS ${os_ver:-unknown})."
+  if [[ -n "${tf_need:-}" ]]; then notify "CaptureAge needs $tf_need or later (this Mac: macOS ${os_ver:-unknown})."
   else notify "CaptureAge needs Clear Menu Text and the DXMT graphics path (Settings > Fixes)."; fi
   echo "captureage: not started (backend $ca_backend, textfix $textfix)" >> "$PREFIX/logs/reports-$stamp.log"; exit 3
 fi
