@@ -112,13 +112,14 @@ What `install.sh` sets up (the app does the same on its first Launch, from the f
 
 ## Use
 - Start **Trebuchet** and press **Launch**. It starts the game directly, not through Steam's Play button, and skips the intro video. If the game was started some other way (for example with Steam's Play button), the app tells you it runs without the fixes.
+- **CaptureAge** (2.2+): if CaptureAge is installed in the game's CrossOver bottle, **Launch CaptureAge** starts the game with the fixes first, then CaptureAge, which shows it: replays and spectated games. CaptureAge draws with Metal (DXMT), like the game; this needs macOS 27 or later and Clear Menu Text on. If CaptureAge is not installed, the app shows where to get it.
 - **Settings:** switch single fixes on or off, choose the graphics path (DXMT, D3DMetal, wined3d) and the CrossOver bottle, show the Metal HUD. "Use Trebuchet's fixes" off starts the game like Steam's Play button.
 - **Fail-safe:** if CrossOver, the copy, or any of our files is not exactly the version this release was built for, the app starts AoE2 the normal CrossOver way and tells you so; it never changes `/Applications/CrossOver.app` or your bottle. Trebuchet prepares its copy only for the CrossOver build it was made for (it checks the version and the file hashes listed in `MANIFEST`).
 - If Steam is not running, the app starts it first (in your normal CrossOver) and waits until you are signed in (up to 10 minutes). If Steam is in offline mode you get a notice, because multiplayer will not connect.
 - **"Trebuchet would like to find devices on your local network"**: macOS may ask this once when Trebuchet starts Steam. It is Steam looking for other computers for LAN games and Remote Play. Allow is fine; Don't Allow only affects LAN games and Remote Play, not online multiplayer.
 - Game updates: the launcher reads the game's code range at every start, so no rebuild is needed. Version-bound fixes switch themselves off when they don't recognise the new build.
 - CrossOver updates: the patched copy stays on the version it was built from. A new CrossOver needs a new release.
-- Command line (for tests): `run-aoe2.sh soft|stock` in `~/Library/Application Support/Trebuchet/`; `AOE2_NO_<FIX>=1` or `AOE2_<FIX>=1` switch single fixes (`REORDER`, `F54A`, `TEXTFIX`, `T13`, `FASTQPC`, `MSYNC`); `AOE2_DRYRUN=1` runs only the checks.
+- Command line (for tests): `run-aoe2.sh soft|stock|captureage` in `~/Library/Application Support/Trebuchet/`; `AOE2_NO_<FIX>=1` or `AOE2_<FIX>=1` switch single fixes (`REORDER`, `F54A`, `TEXTFIX`, `T13`, `FASTQPC`, `MSYNC`); `AOE2_DRYRUN=1` runs only the checks.
 - Logs: **Show Log** in the app, or `~/Library/Application Support/Trebuchet/logs`.
 
 ## Credits and license

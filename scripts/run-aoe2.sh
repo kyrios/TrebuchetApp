@@ -407,6 +407,13 @@ fi
 dxmt_same() { [[ "$(cd "$1" 2>/dev/null && find . -type f | LC_ALL=C sort | xargs shasum -a 256 2>/dev/null)" == "$(cd "$2" && find . -type f | LC_ALL=C sort | xargs shasum -a 256)" ]]; }
 [[ $textfix == on && $backend == dxmt ]] && ca_backend=dxmt
 (( ca_mode )) && echo "captureage: backend ${AOE2_CA_BACKEND:-$ca_backend} (textfix $textfix)" >> "$PREFIX/logs/reports-$stamp.log"
+# 2.2: CaptureAge is tested on DXMT only (the text-fix set). Without it (macOS before 27, or Clear Menu Text off) the
+# start stops here, before anything runs. AOE2_CA_BACKEND=dxvk|dxmt overrides for tests. captureage-stock is CrossOver's own way.
+if (( ca_mode == 1 )) && [[ -z "${AOE2_CA_BACKEND:-}" && $ca_backend != dxmt ]]; then
+  if [[ -n "${tf_need:-}" ]]; then notify "CaptureAge needs macOS 27 or later (this Mac: macOS ${os_ver:-unknown})."
+  else notify "CaptureAge needs Clear Menu Text and the DXMT graphics path (Settings > Fixes)."; fi
+  echo "captureage: not started (backend $ca_backend, textfix $textfix)" >> "$PREFIX/logs/reports-$stamp.log"; exit 3
+fi
 echo "mode $( (( ca_mode )) && echo captureage || echo soft ), CrossOver $copy_ver, textfix $textfix, .text $AOE_SOFTFAULT_PC-$AOE_SOFTFAULT_END, reorder $reorder, t13 $t13, f54a $f54a, fastqpc $fastqpc, t4 $t4, msync $msync, backend $backend, log: $log"
 [[ -n "${AOE2_DRYRUN:-}" ]] && exit 0
 if [[ -d "$PREFIX/$dxmt_set" ]] && ! dxmt_same "$R/lib/dxmt" "$PREFIX/$dxmt_set"; then

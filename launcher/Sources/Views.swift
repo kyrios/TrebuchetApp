@@ -75,9 +75,12 @@ struct MainView: View {
                         .frame(minWidth: 260)
                 }
                 .controlSize(.large)
-                .disabled(runner.state.blocks || runner.captureAge != .none)
+                .disabled(runner.state.blocks || runner.captureAge != .none || CaptureAge.blockedReason(fixes) != nil)
                 .padding(.top, Space.s)
                 .accessibilityHint(Text("Starts the game with Trebuchet's fixes, then CaptureAge, which shows it."))
+                if let why = CaptureAge.blockedReason(fixes) {
+                    Text(why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             } else if CaptureAge.enabledInBuild, fixes.effectiveBottle != nil {
                 // 2.2: not installed in the game's bottle: one line, no button.
                 HStack(spacing: Space.xs) {

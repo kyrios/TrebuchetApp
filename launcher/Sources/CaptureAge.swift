@@ -21,6 +21,16 @@ enum CaptureAge {
         return FileManager.default.fileExists(atPath: exe(bottle: b).path)
     }
 
+    /// 2.2: CaptureAge is tested on DXMT with the text-fix set, which needs macOS 27 (run-aoe2.sh stops the start otherwise).
+    /// nil = can start; else the reason, shown under the button. Fixes off = CrossOver's own way, always allowed.
+    static func blockedReason(_ fixes: Fixes) -> String? {
+        if fixes.plain { return nil }
+        let major = ProcessInfo.processInfo.environment["TREBUCHET_DEMO_MACOS"].flatMap(Int.init) ?? ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        if major < 27 { return Names.text("UI_CA_NEEDS_27", "CaptureAge needs macOS 27 or later.") }
+        if !fixes.textfix || fixes.backendValue != .dxmt { return Names.text("UI_CA_NEEDS_TEXTFIX", "CaptureAge needs Clear Menu Text and the DXMT graphics path (Settings > Fixes).") }
+        return nil
+    }
+
     /// Wine shows Windows processes with their Windows path as argv[0]; anchored so no shell or tool that merely
     /// mentions CaptureAge matches (same pattern as captureage-crossover/run-captureage.sh).
     static let pattern = #"^C:.users.crossover.AppData.Local.Programs.CaptureAge.CaptureAge\.exe( |$)"#
