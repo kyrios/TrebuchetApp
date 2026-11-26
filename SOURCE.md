@@ -21,4 +21,5 @@ The library path (rpath) is added after the build: `install_name_tool -add_rpath
 ## Other parts we ship (not LGPL)
 - x87sidecar (MIT): https://github.com/NerRobDog/x87sidecar at c407ddf + `patches/x87sidecar-c407ddf-trebuchet.patch` (Part A as upstream, code substitution list, stutter fix). Built with `cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0`. Our patch adds no diagnostics; upstream's own optional debug paths stay in the build and do nothing unless their switches are set. The build is reproducible.
 - DXMT v0.72 (MIT): https://github.com/3Shain/dxmt at 3d8d2aa + `patches/dxmt-v0.72-label-fix.patch`.
+- Since 2.2.0, also `patches/dxmt-v0.72-captureage.patch` on top: Direct2D surfaces for CaptureAge only, SwapDeviceContextState, and the Metal library built for macOS 14. With both patches the result is the shipped d3d11.dll (sha256 4fb2e55b…).
 Notices: `LICENSES/`.
