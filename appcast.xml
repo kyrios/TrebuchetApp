@@ -5,6 +5,15 @@
     <link>https://kyrios.github.io/TrebuchetApp/appcast.xml</link>
     <language>en</language>
     <item>
+      <title>Trebuchet 2.2.1</title>
+      <pubDate>Thu, 26 Nov 2026 15:37:03 +0000</pubDate>
+      <sparkle:version>2.2.1</sparkle:version>
+      <sparkle:shortVersionString>2.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <link>https://github.com/kyrios/TrebuchetApp/releases/tag/v2.2.1</link>
+      <enclosure url="https://github.com/kyrios/TrebuchetApp/releases/download/v2.2.1/Trebuchet-2.2.1.dmg" type="application/x-apple-diskimage" sparkle:edSignature="5zeOJu0+BYhZBh28K4bJ0DWra4peMrterdSg2imcpM7pMPdKg6zgD1tIdbDPYFUCWqa+BGMTbkiSV7oDbFmZCA==" length="37353078"/>
+    </item>
+    <item>
       <title>Trebuchet 2.2.0</title>
       <pubDate>Tue, 24 Nov 2026 20:26:19 +0000</pubDate>
       <sparkle:version>2.2.0</sparkle:version>
