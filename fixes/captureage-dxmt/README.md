@@ -33,6 +33,14 @@ git am ../captureage-dxmt/dxmt-v0.72-captureage.patch
 
 `git apply` or `patch -p1` work as well. Then build DXMT as its own README describes (meson and ninja, a mingw-w64 cross compiler, LLVM 15, and Apple's Metal toolchain).
 
+## How to use it
+
+1. Run the bottle that has the game and CaptureAge on DXMT (CrossOver 26.3.0: graphics backend DXMT), with this build's `d3d11.dll`, `dxgi.dll` and `winemetal` files in place of DXMT v0.72's.
+2. Start the game.
+3. Start CaptureAge with `--in-process-gpu` (next section).
+
+**Trebuchet 2.2 does all of this for you.** If CaptureAge is installed in the game's bottle, **Launch CaptureAge** starts the game with Trebuchet's fixes, then CaptureAge with this DXMT build and the flag. It needs Clear Menu Text on (Settings > Fixes).
+
 ## Starting CaptureAge under CrossOver: `--in-process-gpu`
 
 The patch fixes the drawing. CaptureAge also needs one launch flag. CaptureAge is an Electron app, and Chromium's separate GPU process cannot create a surface on a window that belongs to another Wine process. Without the flag, the window crash-loops before the interface appears. Start CaptureAge with `--in-process-gpu`; nothing else needs changing. `--disable-gpu` also starts, but the window stays white.
