@@ -117,6 +117,7 @@ struct TrebuchetApp: App {
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(replacing: .appSettings) { SettingsMenuItem() }
             CommandGroup(replacing: .appInfo) {
                 AboutMenuItem()
                 if Updates.available { Button(Names.text("UI_CHECKUPDATES", "Check for Updates…")) { Updates.check() } }
@@ -133,10 +134,19 @@ struct TrebuchetApp: App {
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
 
-        Settings {
+        // 2.2.1: a Window scene, not a Settings scene. SwiftUI's Settings window ignores user resizing even with
+        // .resizable set, so the Settings window could not be made taller on a large screen.
+        Window(Names.text("UI_SETTINGS_TITLE", "Settings"), id: "settings") {
             SettingsView().environmentObject(fixes)
         }
         .windowResizability(.contentMinSize)
+    }
+}
+
+struct SettingsMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button(Names.text("UI_SETTINGS", "Settings…")) { openWindow(id: "settings") }.keyboardShortcut(",", modifiers: .command)
     }
 }
 
@@ -149,7 +159,6 @@ struct AboutMenuItem: View {
 
 /// Opens the window a demo state asks for (screenshots only).
 struct DemoOpener: View {
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Color.clear.frame(width: 0, height: 0)
@@ -162,7 +171,7 @@ struct DemoOpener: View {
                 }
                 NSApp.activate(ignoringOtherApps: true)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    if Demo.settingsTab != nil { openSettings(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { NSApp.activate(ignoringOtherApps: true) } }
+                    if Demo.settingsTab != nil { openWindow(id: "settings"); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { NSApp.activate(ignoringOtherApps: true) } }
                     if Demo.mode == "about" { openWindow(id: "about") }
                 }
             }

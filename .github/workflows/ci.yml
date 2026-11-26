@@ -5,6 +5,8 @@
 #  - the launcher builds from this commit (launcher/build-app.sh, ad hoc signed, no payload);
 #  - audit-minos and audit-diagnostics on that build, and on the app in the latest PUBLISHED release's DMG with this
 #    commit's audit scripts and allowlist (catches an audit or allowlist change that would fail the shipped files).
+#    The build must declare macOS 26.0 (LSMinimumSystemVersion, since 2.2.1); the published app is audited with
+#    APP_MIN=any, because 2.2.0 declared 14.0.
 # Not here, because they need CrossOver, Wine or the game: test/manifest_gate_test.sh, test/softtest.c,
 # test/reorder_test.c and the game gates (the two-machine release gate on our own Macs).
 name: ci
@@ -52,7 +54,9 @@ jobs:
       - name: Audits on the build
         run: |
           app=$(ls -d "$RUNNER_TEMP"/build/*.app)
-          zsh .github/scripts/audit-minos.sh "$app"
+          APP_MIN=26.0 zsh .github/scripts/audit-minos.sh "$app"
+          m=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")
+          echo "declared minimum macOS: $m"; [[ $m == 26.0 ]] || { echo "::error::LSMinimumSystemVersion is $m, not 26.0"; exit 1; }
           zsh .github/scripts/audit-diagnostics.sh "$app"
 
       - name: Audits on the latest published release
@@ -67,5 +71,5 @@ jobs:
           (cd "$d" && shasum -a 256 -c SHA256SUMS)
           mnt=$(hdiutil attach -nobrowse -readonly "$d"/Trebuchet-*.dmg | awk -F'\t' '/\/Volumes\//{print $NF}')
           ditto "$mnt/Trebuchet.app" "$d/Trebuchet.app"; hdiutil detach -quiet "$mnt"
-          zsh .github/scripts/audit-minos.sh "$d/Trebuchet.app"
+          APP_MIN=any zsh .github/scripts/audit-minos.sh "$d/Trebuchet.app"
           zsh .github/scripts/audit-diagnostics.sh "$d/Trebuchet.app"

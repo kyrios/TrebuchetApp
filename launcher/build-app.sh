@@ -72,7 +72,7 @@ cat > "$app/Contents/Info.plist" <<'EOF'
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
 	<key>CFBundleVersion</key><string>__VERSION__</string>
-	<key>LSMinimumSystemVersion</key><string>14.0</string>
+	<key>LSMinimumSystemVersion</key><string>__APPMIN__</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.strategy-games</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSLocalNetworkUsageDescription</key><string>Steam, when Trebuchet starts it, looks for computers on your network for LAN games and Remote Play. Trebuchet itself does not use your network.</string>
@@ -83,7 +83,11 @@ bid=$(sed -n 's/^BUNDLE_ID=//p' "$here/../scripts/names.conf" | head -1); bid=${
 [[ -n ${TEST_BUILD:-} ]] && bid="$bid.test"
 [[ -n ${SPARKLE_TEST_FEED:-} || -n ${UPDATETEST_ID:-} ]] && bid="$bid.updatetest"
 ver=${VERSION:-2.1}
-sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g" "$app/Contents/Info.plist"
+# APP_MIN_MACOS: the oldest macOS the app declares (Info.plist LSMinimumSystemVersion; sign-app.sh copies it into the
+# appcast item as sparkle:minimumSystemVersion). 2.2.1: 26.0, the versions we test on (user decision 26.11.2026); Macs on
+# macOS 14/15 stay on 2.2.0. The binaries themselves keep the lower deployment target (swiftc -target ...macos14.0 above).
+APP_MIN_MACOS=26.0
+sed -i '' "s#__NAME__#$name#g; s#__BUNDLE__#$bid#g; s#__VERSION__#$ver#g; s#__APPMIN__#$APP_MIN_MACOS#g" "$app/Contents/Info.plist"
 # NO_CAPTUREAGE=1: a build without the Launch CaptureAge button and its detection (the scripts keep the mode; nothing
 # in the app reaches it). The game's own stock-game warning stays.
 [[ -n ${NO_CAPTUREAGE:-} ]] && /usr/libexec/PlistBuddy -c "Add :TrebuchetCaptureAge bool false" "$app/Contents/Info.plist"

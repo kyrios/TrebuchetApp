@@ -21,7 +21,8 @@ enum CaptureAge {
         return FileManager.default.fileExists(atPath: exe(bottle: b).path)
     }
 
-    /// 2.2: CaptureAge is tested on DXMT with the text-fix set, which needs macOS 27 (run-aoe2.sh stops the start otherwise).
+    /// 2.2: CaptureAge runs on DXMT with the text-fix set, on the macOS versions run-aoe2.sh allows it (TEXTFIX_TESTED_MACOS,
+    /// 140000 = macOS 14 in 2.2.0); run-aoe2.sh stops the start otherwise.
     /// nil = can start; else the reason, shown under the button. Fixes off = CrossOver's own way, always allowed.
     static func blockedReason(_ fixes: Fixes) -> String? {
         if fixes.plain { return nil }
@@ -33,8 +34,8 @@ enum CaptureAge {
         return nil
     }
 
-    /// The oldest macOS the text-fix set runs on, as run-aoe2.sh says (TEXTFIX_TESTED_MACOS=270000 → 27.0); the script is
-    /// the one source, so a release that lowers it there needs no app change. 270000 if it can't be read.
+    /// The oldest macOS the text-fix set runs on, as run-aoe2.sh says (TEXTFIX_TESTED_MACOS, e.g. 140000 → 14.0); the script
+    /// is the one source, so a release that changes it there needs no app change. 270000 (the safe old gate) if it can't be read.
     static var textfixMinMacOS: Int {
         guard let t = try? String(contentsOf: Install.script, encoding: .utf8),
               let line = t.split(separator: "\n").first(where: { $0.hasPrefix("TEXTFIX_TESTED_MACOS=") }),

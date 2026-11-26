@@ -1,10 +1,10 @@
 # rules.manifest: the version-bound fixes (grade C = tied to a macOS/Rosetta build, grade D = tied to a game build).
 # Read by run-aoe2.sh for names and warnings. Each fix finds its own sites by fingerprint and switches itself off on
 # any other version; the launcher then says so. f54a also needs its Rosetta runtime in "rosetta=" (sha256 list,
-# comma-separated: the builds it was tested on; 5d0e8f9a… = macOS 27.2 26B123). Format: rule <id> key=value ... (quote values with spaces).
+# comma-separated: the builds it was tested on; 5d0e8f9a… = macOS 27.2 26B123, 7bb4701e… = macOS 26.7.3 25G342). Format: rule <id> key=value ... (quote values with spaces).
 # pack = version of this rule set; a later update channel can replace this file (and pattern files it names)
 # without a new download of the binaries. See docs/rule-updates.md.
-pack 2026.11.23-1 format=1
+pack 2026.11.26-1 format=1
 rule reorder grade=D target=game name="Health-bar speed-up" off=AOE2_NO_REORDER status=mk_reorder pattern=builtin:mk_reorder.py
-rule f54a grade=C target=rosetta name="Stutter fix" off=AOE2_NO_F54A status=log:reclaimcap pattern=builtin:x87sidecar rosetta=5d0e8f9a10093a8af1fbae31b59917be2ad1b248c4a71bf570982ba5966c41c4
+rule f54a grade=C target=rosetta name="Stutter fix" off=AOE2_NO_F54A status=log:reclaimcap pattern=builtin:x87sidecar rosetta=5d0e8f9a10093a8af1fbae31b59917be2ad1b248c4a71bf570982ba5966c41c4,7bb4701e424cc0a3d8c78da03572ea6d61dc4fa38c0ca99fc4db1d837af5ce4a
 rule t13 grade=D target=game name="Faster return checks" off=AOE2_NO_T13 status=mk_rules pattern=builtin:mk_rules.py
