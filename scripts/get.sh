@@ -11,10 +11,13 @@ TAG=v2.2.0
 ASSET=Trebuchet-${TAG#v}.dmg
 SHA256=ccde7850f2bb48f30406eea6633e7ad2146e0cd974b508a7a113de822b72d054
 CX_VERSION=26.3.0.39832
+MIN_MACOS=14   # the release's LSMinimumSystemVersion (major); set together with TAG and SHA256 (2.2.1: 26)
 CX_APP=${CX_APP:-/Applications/CrossOver.app}
 
 die() { print -u2 "Error: $1"; exit 1; }
 [[ $(uname -m) == arm64 ]] || die "this needs an Apple Silicon Mac."
+os=$(/usr/bin/sw_vers -productVersion)
+(( ${os%%.*} >= MIN_MACOS )) || die "Trebuchet ${TAG#v} needs macOS $MIN_MACOS or later; this Mac has macOS $os. On macOS 14 or 15, use Trebuchet 2.2.0: https://github.com/$REPO/releases/tag/v2.2.0"
 /usr/bin/pgrep -q oahd || /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null || die "Rosetta is not installed (softwareupdate --install-rosetta)."
 [[ -d "$CX_APP" ]] || die "CrossOver not found at $CX_APP."
 have=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$CX_APP/Contents/Info.plist" 2>/dev/null || true)

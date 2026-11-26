@@ -19,6 +19,8 @@ Since the game patch of 2 June 2026, AoE2 DE runs very slowly in CrossOver as so
 
 Requirements: Apple Silicon Mac with **macOS 26 or 27** (the versions we test every release on), Rosetta, CrossOver **26.3.0**, AoE2 DE installed through Steam in a CrossOver bottle.
 
+On macOS 14 or 15, use [Trebuchet 2.2.0](https://github.com/kyrios/TrebuchetApp/releases/tag/v2.2.0), the last version for them. Later versions need macOS 26 or later.
+
 Your CrossOver app and your bottle are never changed: Trebuchet works from its own copy of CrossOver in `~/Library/Application Support/Trebuchet/`. To uninstall, choose **Settings → Game → Reset Trebuchet**, then move Trebuchet to the Trash. Trebuchet updates itself; it checks for a new version once a day.
 
 Prefer the Terminal? This installs the same app:
