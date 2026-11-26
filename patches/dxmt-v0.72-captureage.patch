@@ -1,0 +1,314 @@
+From 6a787ea124ba1f874ad776e203fbacc4270e69f6 Mon Sep 17 00:00:00 2001
+From: dxmt-label <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 12:18:39 +0100
+Subject: [PATCH 1/3] feat(d3d11): IDXGISurface2 on Texture2D for
+ CaptureAge.exe only (Direct2D on D3D11 textures)
+
+CaptureAge's renderer calls backTexture.As(&IDXGISurface) and then ID2D1Factory::CreateDxgiSurfaceRenderTarget.
+The surface object is created only when the process is CaptureAge.exe; every other process keeps
+E_NOINTERFACE for IDXGISurface* (byte-identical outputs in initpitch/exediff/textpass/samptest).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+Trebuchet: DXMT patch for CaptureAge (shipped in Trebuchet 2.2.0)
+=================================================================
+Base: DXMT v0.72 (https://github.com/3Shain/dxmt, tag v0.72 = 3d8d2aa) with
+patches/dxmt-v0.72-label-fix.patch applied first. This file holds 3 commits on top, as one file:
+ 1. IDXGISurface2 on ID3D11Texture2D, only inside CaptureAge.exe. CaptureAge draws its overlay with
+    Direct2D on D3D11 textures (QueryInterface for IDXGISurface, then CreateDxgiSurfaceRenderTarget).
+    Every other process, the game included, keeps E_NOINTERFACE as in stock DXMT.
+ 2. ID3D11DeviceContext1::SwapDeviceContextState, which Wine's d2d1 needs on a D3D11 device.
+ 3. Build: dxmt_command.metallib is compiled for macOS 14 / Metal 3.1, like airconv. Without a
+    target, Xcode 27 builds it for macOS 27 only, and Metal on macOS 26 and older cannot load it.
+The game's own output is byte-identical with and without 1-2. v0.72 + the label-fix patch + this
+patch is the exact source of Trebuchet 2.2.0's d3d11.dll (sha256 4fb2e55bd579cd52...).
+Apply: git am dxmt-v0.72-label-fix.patch dxmt-v0.72-captureage.patch (or patch -p1 < each).
+License: MIT, like DXMT (Copyright (c) 3Shain and contributors); these changes are under the same license.
+
+ src/d3d11/d3d11_resource.hpp       | 15 ++++++-
+ src/d3d11/d3d11_texture_device.cpp | 10 +++++
+ src/dxgi/dxgi_resource.hpp         | 68 ++++++++++++++++++++++++++++++
+ 3 files changed, 92 insertions(+), 1 deletion(-)
+
+diff --git a/src/d3d11/d3d11_resource.hpp b/src/d3d11/d3d11_resource.hpp
+index 27b62a4..e154aa8 100644
+--- a/src/d3d11/d3d11_resource.hpp
++++ b/src/d3d11/d3d11_resource.hpp
+@@ -169,7 +169,12 @@ public:
+             device),
+         desc(desc),
+         dxgi_resource(new MTLDXGIResource<TResourceBase<tag, Base...>>(this)),
+-        d3d10(reinterpret_cast<tag::COM *>(this), device->GetImmediateContextPrivate()) {}
++        d3d10(reinterpret_cast<tag::COM *>(this), device->GetImmediateContextPrivate()) {
++    if constexpr (tag::dimension == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
++      if (DXGISurfaceEnabledForProcess())
++        dxgi_surface.reset(new MTLDXGISurface<TResourceBase<tag, Base...>>(this));
++    }
++  }
+ 
+   template <std::size_t n> HRESULT ResolveBase(REFIID riid, void **ppvObject) {
+     return E_NOINTERFACE;
+@@ -217,6 +222,13 @@ public:
+       return S_OK;
+     }
+ 
++    /* only set for 2D textures in CaptureAge.exe; elsewhere nullptr, so the query falls through as before */
++    if (dxgi_surface && (riid == __uuidof(IDXGISurface) || riid == __uuidof(IDXGISurface1) ||
++                         riid == __uuidof(IDXGISurface2))) {
++      *ppvObject = ref(dxgi_surface.get());
++      return S_OK;
++    }
++
+     if (logQueryInterfaceError(__uuidof(typename tag::COM), riid)) {
+       WARN("D3D11Resource(", tag::debug_name ,"): Unknown interface query ", str::format(riid));
+     }
+@@ -286,6 +298,7 @@ public:
+ protected:
+   tag::DESC1 desc;
+   std::unique_ptr<IDXGIResource1> dxgi_resource;
++  std::unique_ptr<IDXGISurface2> dxgi_surface;
+   tag::D3D10_IMPL d3d10;
+ };
+ 
+diff --git a/src/d3d11/d3d11_texture_device.cpp b/src/d3d11/d3d11_texture_device.cpp
+index 1d7cc14..11a32cd 100644
+--- a/src/d3d11/d3d11_texture_device.cpp
++++ b/src/d3d11/d3d11_texture_device.cpp
+@@ -8,9 +8,19 @@
+ #include "dxmt_texture.hpp"
+ #include "d3d11_resource.hpp"
+ #include "util_win32_compat.h"
++#include "util_env.hpp"
++#include <cstring>
+ 
+ namespace dxmt {
+ 
++bool
++DXGISurfaceEnabledForProcess() {
++  // CaptureAge's renderer needs IDXGISurface on 2D textures (Direct2D on D3D11). Answered nowhere else.
++  static const bool enabled = strcasecmp(env::getExeName().c_str(), "CaptureAge.exe") == 0;
++  return enabled;
++}
++
++
+ #pragma region DeviceTexture
+ 
+ template <typename tag_texture>
+diff --git a/src/dxgi/dxgi_resource.hpp b/src/dxgi/dxgi_resource.hpp
+index 8ebfc09..12d4319 100644
+--- a/src/dxgi/dxgi_resource.hpp
++++ b/src/dxgi/dxgi_resource.hpp
+@@ -3,6 +3,7 @@
+ /* header only: use it as an aggregated object */
+ 
+ #include "dxgi1_2.h"
++#include "d3d11.h"
+ #include "log/log.hpp"
+ 
+ namespace dxmt {
+@@ -110,4 +111,71 @@ private:
+   IResource *resource_; // since it's aggregated, no extra reference is needed
+ };
+ 
++/* IDXGISurface2 view of a 2D texture (aggregated, like MTLDXGIResource).
++ * Only created for CaptureAge.exe (see DXGISurfaceEnabledForProcess): its renderer draws with Direct2D onto D3D11
++ * textures via ID2D1Factory::CreateDxgiSurfaceRenderTarget, which needs this interface. Every other process keeps
++ * the old behaviour (QueryInterface(IDXGISurface*) -> E_NOINTERFACE). */
++template <DXGIResourceAggregateContext IResource> class MTLDXGISurface : public IDXGISurface2 {
++public:
++  MTLDXGISurface(IResource *pResource) : resource_(pResource) {}
++  virtual ~MTLDXGISurface() {}
++
++  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) final {
++    return resource_->QueryInterface(riid, ppvObject);
++  }
++  ULONG STDMETHODCALLTYPE AddRef() final { return resource_->AddRef(); }
++  ULONG STDMETHODCALLTYPE Release() final { return resource_->Release(); }
++
++  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT data_size, const void *data) final {
++    return resource_->SetPrivateData(guid, data_size, data);
++  }
++  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid, const IUnknown *object) final {
++    return resource_->SetPrivateDataInterface(guid, object);
++  }
++  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *data_size, void *data) final {
++    return resource_->GetPrivateData(guid, data_size, data);
++  }
++  HRESULT STDMETHODCALLTYPE GetParent(REFIID riid, void **parent) final { return GetDevice(riid, parent); }
++  HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **ppDevice) final {
++    return resource_->GetDeviceInterface(riid, ppDevice);
++  }
++
++  HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SURFACE_DESC *pDesc) final {
++    if (!pDesc)
++      return E_INVALIDARG;
++    D3D11_TEXTURE2D_DESC desc;
++    ID3D11Texture2D *texture = nullptr;
++    if (FAILED(resource_->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&texture))))
++      return E_FAIL;
++    texture->GetDesc(&desc);
++    texture->Release();
++    pDesc->Width = desc.Width;
++    pDesc->Height = desc.Height;
++    pDesc->Format = desc.Format;
++    pDesc->SampleDesc = desc.SampleDesc;
++    return S_OK;
++  }
++  HRESULT STDMETHODCALLTYPE Map(DXGI_MAPPED_RECT *pLockedRect, UINT MapFlags) final {
++    ERR_ONCE("DXGISurface::Map: not supported");
++    return DXGI_ERROR_INVALID_CALL;
++  }
++  HRESULT STDMETHODCALLTYPE Unmap() final { return DXGI_ERROR_INVALID_CALL; }
++  HRESULT STDMETHODCALLTYPE GetDC(BOOL Discard, HDC *phdc) final {
++    ERR_ONCE("DXGISurface::GetDC: not supported");
++    return E_NOTIMPL;
++  }
++  HRESULT STDMETHODCALLTYPE ReleaseDC(RECT *pDirtyRect) final { return E_NOTIMPL; }
++  HRESULT STDMETHODCALLTYPE GetResource(REFIID riid, void **ppParentResource, UINT *pSubresourceIndex) final {
++    if (pSubresourceIndex)
++      *pSubresourceIndex = 0;
++    return resource_->QueryInterface(riid, ppParentResource);
++  }
++
++private:
++  IResource *resource_;
++};
++
++/* true only in CaptureAge.exe (decided once per process). */
++bool DXGISurfaceEnabledForProcess();
++
+ } // namespace dxmt
+\ No newline at end of file
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 451ff20633fc48bae02771ae264e6bda33cae187 Mon Sep 17 00:00:00 2001
+From: dxmt-label <noreply@anthropic.com>
+Date: Tue, 24 Nov 2026 00:15:34 +0100
+Subject: [PATCH 2/3] feat(d3d11): SwapDeviceContextState (Wine d2d1 on D3D11,
+ CaptureAge R2)
+
+Wine's d2d1 swaps its own ID3DDeviceContextState in around every Direct2D draw.
+The live D3D11 state now moves into the active state object and the target
+object's state moves into the context; encoder bindings are rebuilt as in
+ExecuteCommandList(RestoreContextState=TRUE). AoE2 never calls it:
+initpitch 8/8, exediff 204/204, textpass 16/16, samptest 24/24 byte-identical.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/d3d11/d3d11_context_impl.cpp  | 44 ++++++++++++++++++++++++++++++-
+ src/d3d11/d3d11_context_state.hpp |  4 +++
+ 2 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/src/d3d11/d3d11_context_impl.cpp b/src/d3d11/d3d11_context_impl.cpp
+index 4b43cb2..fce9472 100644
+--- a/src/d3d11/d3d11_context_impl.cpp
++++ b/src/d3d11/d3d11_context_impl.cpp
+@@ -1819,7 +1819,46 @@ public:
+   void
+   STDMETHODCALLTYPE
+   SwapDeviceContextState(ID3DDeviceContextState *pState, ID3DDeviceContextState **ppPreviousState) override {
+-    IMPLEMENT_ME
++    // capsurf R2: Wine's d2d1 swaps its own state in around every Direct2D draw and swaps the
++    // previous one back afterwards. The current D3D11 state moves into the active state object
++    // (created on first use), the target object's state moves into the context, and the encoder
++    // bindings are rebuilt the same way ExecuteCommandList(RestoreContextState=TRUE) does.
++    if (ppPreviousState)
++      *ppPreviousState = nullptr;
++    if (!pState)
++      return;
++    std::lock_guard<mutex_t> lock(mutex);
++
++    auto next = static_cast<MTLD3D11DeviceContextState *>(pState);
++    if (!active_context_state_)
++      active_context_state_ = new MTLD3D11DeviceContextState(device);
++    Com<MTLD3D11DeviceContextState, false> prev = active_context_state_;
++
++    if (ppPreviousState)
++      *ppPreviousState = ref(prev.ptr());
++    if (next == prev.ptr())
++      return;
++
++    ResetEncodingContextState();
++    prev->saved_state = std::move(state_);
++    state_ = std::move(next->saved_state);
++    next->saved_state = {};
++    active_context_state_ = next;
++
++    RestoreEncodingContextState();
++    for (auto &stage : state_.ShaderStages) {
++      stage.SRVs.set_dirty();
++      stage.Samplers.set_dirty();
++      stage.ConstantBuffers.set_dirty();
++    }
++    state_.ComputeStageUAV.UAVs.set_dirty();
++    state_.InputAssembler.VertexBuffers.set_dirty();
++    state_.OutputMerger.UAVs.set_dirty();
++    state_.StreamOutput.Targets.set_dirty();
++    dirty_state.set(
++        DirtyState::BlendFactorAndStencilRef, DirtyState::RasterizerState, DirtyState::DepthStencilState,
++        DirtyState::Viewport, DirtyState::Scissors
++    );
+   }
+ 
+   void
+@@ -4829,6 +4868,9 @@ public:
+ 
+   Flags<DirtyState> dirty_state = 0;
+ 
++  // capsurf R2: the ID3DDeviceContextState whose state is currently live (SwapDeviceContextState)
++  Com<MTLD3D11DeviceContextState, false> active_context_state_ = nullptr;
++
+ #pragma endregion
+ 
+ protected:
+diff --git a/src/d3d11/d3d11_context_state.hpp b/src/d3d11/d3d11_context_state.hpp
+index f5314b0..d24dfeb 100644
+--- a/src/d3d11/d3d11_context_state.hpp
++++ b/src/d3d11/d3d11_context_state.hpp
+@@ -190,6 +190,10 @@ public:
+ 
+   ~MTLD3D11DeviceContextState() {}
+ 
++  // capsurf R2: the D3D11 state this object holds while it is not active
++  // (SwapDeviceContextState moves state in and out; used by Wine's d2d1)
++  D3D11ContextState saved_state = {};
++
+   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) {
+     if (ppvObject == nullptr)
+       return E_POINTER;
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 8a150ef129e65e717ab7b12d4d96f7896307c700 Mon Sep 17 00:00:00 2001
+From: Thorsten Philipp <github@kyri0s.de>
+Date: Tue, 24 Nov 2026 20:21:49 +0100
+Subject: [PATCH 3/3] build(dxmt): compile dxmt_command.metallib for macOS 14 /
+ Metal 3.1 like airconv
+
+Without a target the SDK's newest is used (air64_v29-apple-macosx27.2.0 with the
+Xcode 27 toolchain), which Metal on macOS 26 and older cannot load.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/dxmt/meson.build | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/dxmt/meson.build b/src/dxmt/meson.build
+index 6bc8f32..4d02252 100644
+--- a/src/dxmt/meson.build
++++ b/src/dxmt/meson.build
+@@ -22,7 +22,7 @@ dxmt_shaders = [
+   'dxmt_command.metal'
+ ]
+ 
+-dxmt_shaders_ir = metalir_generator.process(dxmt_shaders)
++dxmt_shaders_ir = metalir_generator.process(dxmt_shaders, extra_args: ['-std=metal3.1', '--target=air64-apple-macos14.0'])
+ 
+ dxmt_shaders_lib = metallib_generator.process(dxmt_shaders_ir)
+ 
+-- 
+2.54.0 (Apple Git-157)
+
