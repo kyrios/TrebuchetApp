@@ -36,7 +36,8 @@ func openLogs() {
 struct MainView: View {
     @EnvironmentObject var fixes: Fixes
     @EnvironmentObject var runner: Runner
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
+    private func openSettings() { openWindow(id: "settings") }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -304,8 +305,7 @@ struct SettingsView: View {
 
 /// SwiftUI opens the Settings window at a default size (900 x 450) instead of the content's ideal size, so the window
 /// is sized here once it exists: 600 pt wide, the Fixes tab's natural height capped to the screen, fully on screen.
-/// Its Forms scroll, so every control is reachable. (User resizing: SwiftUI's Settings window does not take it, even
-/// with .resizable set; a follow-up.)
+/// Its Forms scroll, so every control is reachable. The user can resize it (2.2.1: a Window scene, not Settings).
 struct SettingsWindowSizer: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let v = NSView()
