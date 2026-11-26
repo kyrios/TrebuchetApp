@@ -1,0 +1,71 @@
+# Checks on every push to main and every pull request (and by hand). Builds nothing that ships and holds no secret.
+# Runs on GitHub's macOS runners only (public repository: never a self-hosted runner here).
+#  - syntax of every shell script (zsh -n / bash -n by shebang) and the Python helpers;
+#  - unit tests that need no CrossOver or game (test/find_game_test.sh);
+#  - the launcher builds from this commit (launcher/build-app.sh, ad hoc signed, no payload);
+#  - audit-minos and audit-diagnostics on that build, and on the app in the latest PUBLISHED release's DMG with this
+#    commit's audit scripts and allowlist (catches an audit or allowlist change that would fail the shipped files).
+# Not here, because they need CrossOver, Wine or the game: test/manifest_gate_test.sh, test/softtest.c,
+# test/reorder_test.c and the game gates (the two-machine release gate on our own Macs).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Script syntax
+        run: |
+          rc=0
+          for f in scripts/*.sh test/*.sh .github/scripts/*.sh launcher/build-app.sh; do
+            if head -1 "$f" | grep -q bash; then bash -n "$f" || { echo "::error file=$f::bash syntax"; rc=1; }
+            else zsh -n "$f" || { echo "::error file=$f::zsh syntax"; rc=1; }; fi
+          done
+          python3 -m py_compile scripts/*.py || rc=1
+          exit $rc
+
+      - name: Unit tests (no CrossOver needed)
+        run: zsh test/find_game_test.sh
+
+      - name: Build the launcher
+        run: |
+          xcrun swiftc --version
+          OUT="$RUNNER_TEMP/build" zsh launcher/build-app.sh
+          ls -d "$RUNNER_TEMP"/build/*.app
+
+      - name: Audits on the build
+        run: |
+          app=$(ls -d "$RUNNER_TEMP"/build/*.app)
+          zsh .github/scripts/audit-minos.sh "$app"
+          zsh .github/scripts/audit-diagnostics.sh "$app"
+
+      - name: Audits on the latest published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag=$(gh release view -R "$REPO" --json tagName -q .tagName)
+          echo "latest published release: $tag"
+          d="$RUNNER_TEMP/rel"; mkdir -p "$d"
+          gh release download "$tag" -R "$REPO" -p 'Trebuchet-*.dmg' -p SHA256SUMS -D "$d"
+          (cd "$d" && shasum -a 256 -c SHA256SUMS)
+          mnt=$(hdiutil attach -nobrowse -readonly "$d"/Trebuchet-*.dmg | awk -F'\t' '/\/Volumes\//{print $NF}')
+          ditto "$mnt/Trebuchet.app" "$d/Trebuchet.app"; hdiutil detach -quiet "$mnt"
+          zsh .github/scripts/audit-minos.sh "$d/Trebuchet.app"
+          zsh .github/scripts/audit-diagnostics.sh "$d/Trebuchet.app"
