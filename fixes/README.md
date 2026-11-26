@@ -1,12 +1,13 @@
 # Fixes for Age of Empires II: DE on Apple Silicon
 
-Each folder holds one fix: a patch cut down to that fix (or a note, where there is nothing to patch) and a README with what it does, what we measured, how to apply it, its limits and its licence. Every patch applies on its own to the base named in its README.
+Each folder holds one fix: a patch cut down to that fix (or a note, where there is nothing to patch) and a README with what it does, what we measured, how to apply it, its limits and its licence. Every patch applies on its own to the base named in its README (`captureage-dxmt` needs `dxmt-initdata-row-pitch` first).
 
 All measurements: Mac Studio M2 Max, macOS 27.2, CrossOver 26.3.0, game build 101.103.57257.0, offline replays. FPS figures are Metal HUD readings. Estimates are marked as estimates.
 
 | Folder | Applies to | What it fixes |
 |---|---|---|
 | [`dxmt-initdata-row-pitch`](dxmt-initdata-row-pitch) | DXMT v0.72 (`3d8d2aa`) | Texture rows cut short when `SysMemPitch` is smaller than a row; garbled menu labels in the game |
+| [`captureage-dxmt`](captureage-dxmt) | DXMT v0.72 after `dxmt-initdata-row-pitch` | CaptureAge's overlay (Direct2D on D3D11 textures) on DXMT; the Metal library built for macOS 14 |
 | [`rosetta-reclaim-budget`](rosetta-reclaim-budget) | x87sidecar `c407ddf` | Freezes every 30–40 s while Rosetta frees dead translations; works for any program that rewrites code often |
 | [`wine-fast-exception-delivery-aoe2`](wine-fast-exception-delivery-aoe2) | CrossOver 26.3.0 source (Wine `ntdll`) | The game's own processor exceptions take a slow path through the kernel; delivers them as a direct call instead |
 | [`wine-fast-qpc`](wine-fast-qpc) | CrossOver 26.3.0 source (Wine `ntdll`) | `QueryPerformanceCounter` without a syscall; off by default |
@@ -27,7 +28,7 @@ The two x87sidecar rule folders share one patch (translation-time substitution).
 ## Licences
 
 - Wine patches: GNU LGPL 2.1 or later, [`../LICENSES/LGPL-2.1.txt`](../LICENSES/LGPL-2.1.txt).
-- DXMT v0.72 patch: MIT, [`../LICENSES/DXMT-MIT.txt`](../LICENSES/DXMT-MIT.txt).
+- DXMT v0.72 patches: MIT, [`../LICENSES/DXMT-MIT.txt`](../LICENSES/DXMT-MIT.txt).
 - x87sidecar patches: MIT, [`../LICENSES/x87sidecar-MIT.txt`](../LICENSES/x87sidecar-MIT.txt).
 - The two rule-finder scripts (`mk_rules.py`, `mk_reorder.py`): this repository's licence, LGPL 2.1, [`../LICENSE`](../LICENSE).
 
