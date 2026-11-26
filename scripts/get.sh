@@ -7,11 +7,11 @@
 # copy of CrossOver on the first Launch. Nothing in your CrossOver app or in your bottle is changed.
 set -euo pipefail
 REPO=kyrios/TrebuchetApp
-TAG=v2.2.0
+TAG=v2.2.1
 ASSET=Trebuchet-${TAG#v}.dmg
-SHA256=ccde7850f2bb48f30406eea6633e7ad2146e0cd974b508a7a113de822b72d054
+SHA256=6e44d0563b186f49ff03a92f14a6c4d3d383bf4be7be824f1deeba53e8602252
 CX_VERSION=26.3.0.39832
-MIN_MACOS=14   # the release's LSMinimumSystemVersion (major); set together with TAG and SHA256 (2.2.1: 26)
+MIN_MACOS=26   # the release's LSMinimumSystemVersion (major); set together with TAG and SHA256
 CX_APP=${CX_APP:-/Applications/CrossOver.app}
 
 die() { print -u2 "Error: $1"; exit 1; }
