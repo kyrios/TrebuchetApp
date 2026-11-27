@@ -8,7 +8,7 @@ In our CrossOver 26.3.0 bottle for Age of Empires II: DE (from Steam, with the V
 
 A current copy, **10.0.22000.194**, is already in the same bottle as the app-local copy of .NET 6. The override makes programs load the old one instead.
 
-We have not checked whether a freshly created bottle ends up the same way.
+A freshly created CrossOver 26.3 bottle does not: it uses CrossOver's builtin `ucrtbase`, has no override, and runs the game fine (see the M1 Pro measurement below).
 
 ## Measured result
 
@@ -27,7 +27,41 @@ Results:
 - `printf` with `%f`, `%g`, `%.9g`, `%.17g`, `%e` and `%.3f` gives identical output over 12 million values.
 - Parsing: 10137 has the known pre-release rounding bug in `strtof`/`strtod`. Some long or near-halfway decimal strings come out 1 ulp off. 22000.194 rounds them correctly. The game's own 63,740 number literals in its data, and those of the 14 mods we checked, parse identically in both.
 
-What the newer runtime would mean for the game's frame rate is an **estimate**: about 3 % of the main thread's time, or 0.05–0.09 ms per frame in one scene. We have not measured it in the game.
+What the newer runtime would mean for the game's frame rate is an **estimate**: about 3 % of the main thread's time, or 0.05–0.09 ms per frame in one scene. The in-game measurement below found no clear difference.
+
+### M1 Pro / CrossOver 26.3 in-game measurement
+
+Some macOS guides tell you to put a "patched" `ucrtbase.dll` (the 2015 pre-release runtime) into `system32` and to set `ucrtbase` and `concrt140` to `native, builtin`. We measured what that does in the game.
+
+**Method.** MacBook Pro M1 Pro, macOS 26.7.3, CrossOver 26.3.0, game build 101.103.57257.0, 1366×768 window, 60 Hz, Mac left idle. One recorded multiplayer replay, paused or playing at 32:30, 40 units in the box selection. Four windows: paused with nothing selected (30 s), paused with the box selected (30 s), playing with nothing selected (60 s), playing with the box selected (60 s). FPS from the Metal HUD. Each arm runs in its own APFS clone of a bottle that has Microsoft's Visual C++ 14.51 runtime installed natively, as a bottle set up by such a guide has. For every arm we checked which `ucrtbase.dll` the game actually mapped (`lsof`). Arms interleaved; 12 measured arms, 2 per setup (4 for one setup, where 2 windows were invalid: the game stopped presenting).
+
+Setups:
+
+- **builtin**: no `ucrtbase` step, CrossOver's builtin runtime.
+- **10137**: the guides' step, Microsoft's `ucrtbase` 10.0.10137.0, loaded natively.
+- **22000**: Microsoft's `ucrtbase` 10.0.22000.194, loaded natively.
+
+Each setup with plain CrossOver 26.3 and DXVK (as the guides use it), and through Trebuchet 2.2.1.
+
+Mean FPS (frames of 150 ms or longer per arm in brackets):
+
+| Window | builtin | 10137 | 22000 | Trebuchet, builtin | Trebuchet, 10137 | Trebuchet, 22000 |
+|---|---|---|---|---|---|---|
+| Paused, nothing selected | 72.2 (0, 1) | 69.5 (1, 0) | 76.0 (0, 0, 0, 0) | 96.1 (0, 0) | 90.7 (0, 0) | 98.7 (0, 0) |
+| Paused, box selected | 11.5 (6, 1) | 10.4 (4, 3) | 11.7 (4, 4, 1, 6) | 88.5 (0, 0) | 86.9 (0, 0) | 91.5 (0, 0) |
+| Playing, nothing selected | 9.7 (10, 36) | 13.3 (33, 32) | 11.6 (41, 39, 4, 39) | 84.9 (0, 0) | 84.8 (0, 0) | 87.0 (0, 0) |
+| Playing, box selected | 21.2 (8, 9) | 15.4 (11, 2) | 23.2 (3, 6) | 114.8 (0, 0) | 116.5 (0, 0) | 114.8 (0, 0) |
+
+Longest frame: plain CrossOver up to 11.8 s, Trebuchet up to 118 ms.
+
+Results:
+
+- The `ucrtbase` step does not make the game faster. Plain CrossOver is about as slow with every runtime; the spread between arms of the same setup is as large as the differences between setups.
+- Every plain CrossOver window had frames of 150 ms or longer, with any runtime. Trebuchet had none, with any runtime.
+- In a bottle **without** a native Visual C++ runtime (a fresh CrossOver 26.3 bottle), the native 10137 `ucrtbase` starts the game and shows the menu, but **the replay does not load** (3 of 3 tries; the same bottle without the step loads it).
+- A fresh CrossOver 26.3 bottle with no `ucrtbase`/`concrt140` overrides runs the game fine.
+- Not yet done: a full-replay sync check with each runtime.
+- We did not test the DLL from the download site these guides link to; we used Microsoft's own signed 10.0.10137.0 file from a CrossOver bottle.
 
 ## How to apply
 
